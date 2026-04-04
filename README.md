@@ -1,4 +1,4 @@
- ```
+```
 Google has announced that, starting in 2026/2027, all apps on certified Android devices
 will require the developer to submit personal identity details directly to Google.
 Since the developers of this app do not agree to this requirement, this app will no longer 
@@ -42,7 +42,7 @@ To get the most out of Whisper+, follow these simple tips:
 - Press and hold the button while speaking or use automatic mode where available
 - Pause briefly before starting to speak
 - Speak clearly, loudly, and at a moderate pace
-- Please note that there is a limit of 30s for each recording
+- Please note that there is a limit of 30s for each recording. For longer transcriptions briefly release the button and press it again. You can continue to speak while transcription is running.
 
 By following these guidelines, you'll be able to enjoy accurate and efficient voice recognition with Whisper.
 
