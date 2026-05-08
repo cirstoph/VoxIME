@@ -167,8 +167,10 @@ public class Recorder {
         if (bufferSize < VAD_FRAME_SIZE * 2) bufferSize = VAD_FRAME_SIZE * 2;
 
         AudioManager audioManager = (AudioManager) mContext.getSystemService(Context.AUDIO_SERVICE);
-        audioManager.startBluetoothSco();
-        audioManager.setBluetoothScoOn(true);
+        if (sp.getBoolean("bluetooth", false)){
+            audioManager.startBluetoothSco();
+            audioManager.setBluetoothScoOn(true);
+        }
 
         AudioRecord.Builder builder = new AudioRecord.Builder()
                 .setAudioSource(audioSource)

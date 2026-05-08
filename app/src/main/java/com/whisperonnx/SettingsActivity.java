@@ -39,6 +39,7 @@ public class SettingsActivity extends AppCompatActivity {
     private Spinner spinnerLanguage2IME;
     private CheckBox modeSimpleChinese;
     private CheckBox modeSimpleChineseIME;
+    private CheckBox modeBluetooth;
     private String langCodeIME = "";
     private RangeSlider minSilence;
     private int langSelected;
@@ -156,6 +157,18 @@ public class SettingsActivity extends AppCompatActivity {
             SharedPreferences.Editor editor = sp.edit();
             editor.putBoolean("simpleChinese", isChecked);
             editor.apply();
+        });
+
+        modeBluetooth = findViewById(R.id.mode_bluetooth);
+        modeBluetooth.setChecked(sp.getBoolean("bluetooth",false));
+        modeBluetooth.setOnCheckedChangeListener((compoundButton, isChecked) -> {
+            SharedPreferences.Editor editor = sp.edit();
+            editor.putBoolean("bluetooth", isChecked);
+            editor.apply();
+            if (isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},111);
+            }
         });
 
         spinnerLanguage = findViewById(R.id.spnrLanguage);

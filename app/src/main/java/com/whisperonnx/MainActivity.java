@@ -325,6 +325,12 @@ public class MainActivity extends AppCompatActivity {
         if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) && (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)){
             perms.add(Manifest.permission.POST_NOTIFICATIONS);
         }
+        if (sp.getBoolean("bluetooth", false)
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            perms.add(Manifest.permission.BLUETOOTH_CONNECT);
+        }
+
         if (!perms.isEmpty()) {
             requestPermissions(perms.toArray(new String[] {}), 0);
         }

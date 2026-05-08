@@ -40,5 +40,6 @@
     <string name="settings_minimum_silence">Minimum silence in automatic mode (ms)</string>
     <string name="lang1">Language 1</string>
     <string name="lang2">Language 2</string>
+    <string name="setting_bluetooth">Use Bluetooth devices</string>
 
 </resources>
