@@ -24,20 +24,20 @@
         android:layout_marginBottom="5dp">
 
         <ImageButton
-            android:id="@+id/btnKeyboard"
+            android:id="@+id/btnModeAuto"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentStart="true"
             android:background="@color/darkGrey"
-            android:src="@drawable/ic_keyboard_36dp"
-            android:contentDescription="@string/exit_button"/>
+            android:src="@drawable/ic_auto_off_36dp"
+            android:contentDescription="@string/auto_button"/>
 
         <ImageButton
             android:id="@+id/btnLang1"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
-            android:layout_toEndOf="@id/btnKeyboard"
+            android:layout_toEndOf="@id/btnModeAuto"
             android:background="@color/darkGrey"
             android:src="@drawable/ic_counter_1_off_36dp"
             android:contentDescription="@string/lang1"/>
@@ -53,13 +53,13 @@
             android:contentDescription="@string/lang2"/>
 
         <ImageButton
-            android:id="@+id/btnModeAuto"
+            android:id="@+id/btnKeyboard"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_centerHorizontal="true"
             android:background="@color/darkGrey"
-            android:src="@drawable/ic_auto_off_36dp"
-            android:contentDescription="@string/auto_button"/>
+            android:src="@drawable/ic_keyboard_36dp"
+            android:contentDescription="@string/exit_button"/>
 
         <ImageButton
             android:id="@+id/btnTranslate"
@@ -74,8 +74,6 @@
     <TextView
         android:id="@+id/tv_status"
         android:visibility="gone"
-        android:layout_alignParentEnd="true"
-        android:layout_toEndOf="@id/btnKeyboard"
         android:gravity="center_horizontal"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
