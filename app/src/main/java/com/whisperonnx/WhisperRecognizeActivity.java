@@ -19,6 +19,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -39,6 +40,7 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
     private ImageButton btnCancel;
     private ImageButton btnStop;
     private ImageButton btnModeAuto;
+    private TextView tvLang;
     private ProgressBar processingBar = null;
     private Recorder mRecorder = null;
     private Whisper mWhisper = null;
@@ -89,6 +91,8 @@ public class WhisperRecognizeActivity extends AppCompatActivity {
         btnRecord = findViewById(R.id.btnRecord);
         btnModeAuto = findViewById(R.id.btnModeAuto);
         processingBar = findViewById(R.id.processing_bar);
+        tvLang = findViewById(R.id.tvLang);
+        tvLang.setText(langCode);
 
         modeAuto = sp.getBoolean("imeModeAuto",false);
         btnModeAuto.setImageResource(modeAuto ? R.drawable.ic_auto_on_36dp : R.drawable.ic_auto_off_36dp);
