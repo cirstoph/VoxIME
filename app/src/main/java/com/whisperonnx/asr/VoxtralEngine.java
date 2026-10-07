@@ -19,6 +19,7 @@ import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 
 /**
@@ -71,15 +72,15 @@ public class VoxtralEngine {
         env = OrtEnvironment.getEnvironment();
 
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
-        enc.setIntraThreadCount(2);
+        enc.setIntraOpNumThreads(2);
         encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
-        emb.setIntraThreadCount(1);
+        emb.setIntraOpNumThreads(1);
         embedSession = env.createSession(new File(dir, "embed_tokens_q4.onnx").getAbsolutePath(), emb);
 
         OrtSession.SessionOptions dec = new OrtSession.SessionOptions();
-        dec.setIntraThreadCount(4);
+        dec.setIntraOpNumThreads(4);
         decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
 
         loadVocab();
@@ -106,7 +107,9 @@ public class VoxtralEngine {
         JSONObject model = root.getJSONObject("model");
         JSONObject vocabJson = model.getJSONObject("vocab");
         int maxId = 0;
-        for (String piece : vocabJson.keySet()) {
+        JSONArray pieces = vocabJson.names();
+        for (int i = 0; i < pieces.length(); i++) {
+            String piece = pieces.getString(i);
             int id = vocabJson.getInt(piece);
             vocab.put(piece, id);
             if (id > maxId) maxId = id;
@@ -121,25 +124,31 @@ public class VoxtralEngine {
 
     // ---------- Byte-level BPE helpers ----------
 
-    private static final String BYTE_ENCODER = buildByteEncoder();
+    private static final char[] BYTE_ENCODER = buildByteEncoder();
+    private static final java.util.Map<Character, Integer> BYTE_DECODER = buildByteDecoder();
 
-    private static String buildByteEncoder() {
-        List<Character> chars = new ArrayList<>();
-        for (int i = 0; i < 256; i++) {
-            int b = i;
-            if (b >= '!' && b <= '~' || b >= 161 && b <= 172 || b >= 174 && b <= 255) {
-                chars.add((char) b);
+    private static char[] buildByteEncoder() {
+        java.util.Set<Character> printable = new java.util.HashSet<>();
+        for (int b = '!'; b <= '~'; b++) printable.add((char) b);
+        for (int b = 161; b <= 172; b++) printable.add((char) b);
+        for (int b = 174; b <= 255; b++) printable.add((char) b);
+        char[] enc = new char[256];
+        int n = 0;
+        for (int b = 0; b < 256; b++) {
+            if (printable.contains((char) b)) {
+                enc[b] = (char) b;
             } else {
-                chars.add((char) (256 + chars.size()));
+                enc[b] = (char) (256 + n);
+                n++;
             }
         }
-        StringBuilder sb = new StringBuilder();
-        for (char c : chars) sb.append(c);
-        return sb.toString();
+        return enc;
     }
 
-    private static char byteToChar(int b) {
-        return BYTE_ENCODER.charAt(b & 0xFF);
+    private static java.util.Map<Character, Integer> buildByteDecoder() {
+        java.util.Map<Character, Integer> dec = new java.util.HashMap<>();
+        for (int b = 0; b < 256; b++) dec.put(BYTE_ENCODER[b], b);
+        return dec;
     }
 
     public String decode(List<Long> ids) {
@@ -153,9 +162,8 @@ public class VoxtralEngine {
         // byte chars -> bytes -> UTF-8 text
         java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
         for (int i = 0; i < chars.length(); i++) {
-            char c = chars.charAt(i);
-            int idx = BYTE_ENCODER.indexOf(c);
-            if (idx >= 0) bos.write(idx);
+            Integer b = BYTE_DECODER.get(chars.charAt(i));
+            if (b != null) bos.write(b);
         }
         return new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
     }
@@ -227,19 +235,15 @@ public class VoxtralEngine {
         double[][] melOut = new double[3000][nMels];
 
         float[] frame = new float[nFft];
+        double[] spec = new double[nFreq];
         for (int f = 0; f < nFrames; f++) {
             int off = f * hop;
             for (int i = 0; i < nFft; i++) frame[i] = audio[off + i] * window[i];
-            // real FFT via simple DFT (power spectrum) - nFreq bins
-            // use radix-2 FFT for speed
-            double[] re = new double[nFft], im = new double[nFft];
-            for (int i = 0; i < nFft; i++) { re[i] = frame[i]; }
-            fft(re, im);
+            powerSpectrum(frame, spec);
             for (int m = 0; m < nMels; m++) {
                 double sum = 0.0;
                 for (int k = 0; k < nFreq; k++) {
-                    double p = re[k] * re[k] + im[k] * im[k];
-                    sum += p * melFb[m * nFreq + k];
+                    sum += spec[k] * melFb[m * nFreq + k];
                 }
                 melOut[f][m] = sum;
             }
@@ -264,33 +268,29 @@ public class VoxtralEngine {
         return out;
     }
 
-    private static void fft(double[] re, double[] im) {
-        int n = re.length;
-        for (int i = 1, j = 0; i < n; i++) {
-            int bit = n >> 1;
-            for (; (j & bit) != 0; bit >>= 1) j ^= bit;
-            j |= bit;
-            if (i < j) {
-                double t = re[i]; re[i] = re[j]; re[j] = t;
-                t = im[i]; im[i] = im[j]; im[j] = t;
+    private static final int FFT_N = 400;
+    private static final int FREQ_BINS = FFT_N / 2 + 1;
+    private static final double[] DFT_COS = new double[FREQ_BINS * FFT_N];
+    private static final double[] DFT_SIN = new double[FREQ_BINS * FFT_N];
+    static {
+        for (int k = 0; k < FREQ_BINS; k++) {
+            for (int t = 0; t < FFT_N; t++) {
+                double ang = -2.0 * Math.PI * k * t / FFT_N;
+                DFT_COS[k * FFT_N + t] = Math.cos(ang);
+                DFT_SIN[k * FFT_N + t] = Math.sin(ang);
             }
         }
-        for (int len = 2; len <= n; len <<= 1) {
-            double ang = -2.0 * Math.PI / len;
-            double wr = Math.cos(ang), wi = Math.sin(ang);
-            for (int i = 0; i < n; i += len) {
-                double cr = 1.0, ci = 0.0;
-                for (int k = 0; k < len / 2; k++) {
-                    double ur = re[i + k], ui = im[i + k];
-                    double vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
-                    double vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
-                    re[i + k] = ur + vr; im[i + k] = ui + vi;
-                    re[i + k + len / 2] = ur - vr; im[i + k + len / 2] = ui - vi;
-                    double ncr = cr * wr - ci * wi;
-                    ci = cr * wi + ci * wr;
-                    cr = ncr;
-                }
+    }
+    private static void powerSpectrum(float[] frame, double[] out) {
+        for (int k = 0; k < FREQ_BINS; k++) {
+            double re = 0.0, im = 0.0;
+            int base = k * FFT_N;
+            for (int t = 0; t < FFT_N; t++) {
+                double v = frame[t];
+                re += v * DFT_COS[base + t];
+                im += v * DFT_SIN[base + t];
             }
+            out[k] = re * re + im * im;
         }
     }
 
@@ -419,8 +419,8 @@ public class VoxtralEngine {
                 float[] lastLogits = logits3[0][logits3[0].length - 1];
                 nextId = argmax(lastLogits);
                 for (int l = 0; l < NUM_LAYERS; l++) {
-                    newPast.get("key")[l] = toJagged(res.get("present." + l + ".key").getValue(), KV_HEADS, HEAD_DIM);
-                    newPast.get("value")[l] = toJagged(res.get("present." + l + ".value").getValue(), KV_HEADS, HEAD_DIM);
+                    newPast.get("key")[l] = toJagged(res.get("present." + l + ".key").get().getValue(), KV_HEADS, HEAD_DIM);
+                    newPast.get("value")[l] = toJagged(res.get("present." + l + ".value").get().getValue(), KV_HEADS, HEAD_DIM);
                 }
             } finally {
                 for (OnnxTensor t : feeds.values()) t.close();
@@ -462,7 +462,7 @@ public class VoxtralEngine {
         return past;
     }
 
-    private OnnxTensor pastTensor(float[][][] kv) {
+    private OnnxTensor pastTensor(float[][][] kv) throws OrtException {
         // kv: [heads][seq][dim] or empty
         int seq = kv.length == 0 ? 0 : kv[0].length;
         if (seq == 0) {
