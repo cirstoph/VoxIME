@@ -55,6 +55,15 @@
                     android:textSize="22dp"
                     android:text="@string/install_model"
                     android:onClick="installModel"/>
+                <Button
+                    android:id="@+id/download_voxtral_button"
+                    android:layout_marginBottom="10dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:textSize="22dp"
+                    android:text="@string/download_voxtral"
+                    android:onClick="downloadVoxtral"/>
 
                 <TextView
                     android:id="@+id/extracted_file"
