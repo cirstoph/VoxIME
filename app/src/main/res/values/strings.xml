@@ -31,6 +31,8 @@
     <string name="auto_button">automatic mode</string>
     <string name="error_no_input">No voice input received</string>
     <string name="download_voxtral">Download Voxtral model (~2.7 GB)</string>
+    <string name="download_voxtral_success">Voxtral model downloaded successfully</string>
+    <string name="download_voxtral_failed">Download failed</string>
     <string name="install_model">Install model</string>
     <string name="auto_lang">Detect language</string>
     <string name="settings">Settings</string>

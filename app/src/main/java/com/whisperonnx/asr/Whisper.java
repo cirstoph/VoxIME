@@ -7,7 +7,9 @@ import android.content.Intent;
 import android.util.Log;
 
 import com.whisperonnx.SetupActivity;
+import com.whisperonnx.voice_translation.neural_networks.NeuralNetworkApi;
 import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
+import com.whisperonnx.voice_translation.neural_networks.voice.RecognizerListener;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
