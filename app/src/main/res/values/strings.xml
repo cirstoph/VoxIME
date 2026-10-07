@@ -30,6 +30,7 @@
     <string name="tts_initialization_failed">TTS: Initialization failed</string>
     <string name="auto_button">automatic mode</string>
     <string name="error_no_input">No voice input received</string>
+    <string name="download_voxtral">Download Voxtral model (~2.7 GB)</string>
     <string name="install_model">Install model</string>
     <string name="auto_lang">Detect language</string>
     <string name="settings">Settings</string>

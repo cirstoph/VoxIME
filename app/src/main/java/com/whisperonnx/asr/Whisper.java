@@ -7,9 +7,7 @@ import android.content.Intent;
 import android.util.Log;
 
 import com.whisperonnx.SetupActivity;
-import com.whisperonnx.voice_translation.neural_networks.NeuralNetworkApi;
 import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
-import com.whisperonnx.voice_translation.neural_networks.voice.RecognizerListener;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,6 +31,7 @@ public class Whisper {
     private Recognizer.Action mAction;
     private String mLangCode = "";
     private WhisperListener mUpdateListener;
+    private VoxtralEngine mVoxtralEngine = null;
 
     private final Lock taskLock = new ReentrantLock();
     private final Condition hasTask = taskLock.newCondition();
@@ -60,7 +59,7 @@ public class Whisper {
                 fileCount++;
             }
         }
-        if (fileCount != 6) { //install model
+        if (fileCount < 6) { //install model
             Intent intent = new Intent(mContext, SetupActivity.class);
             intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
             mContext.startActivity(intent);
@@ -76,6 +75,18 @@ public class Whisper {
     }
 
     public void loadModel() {
+        if (new java.io.File(mContext.getExternalFilesDir(null), "decoder_model_merged_q4.onnx").exists()) {
+            mVoxtralEngine = new VoxtralEngine(mContext);
+            new Thread(() -> {
+                try {
+                    mVoxtralEngine.loadModel();
+                    Log.d(TAG, "Voxtral engine initialized");
+                } catch (Exception e) {
+                    Log.e(TAG, "Voxtral init error", e);
+                }
+            }).start();
+            return;
+        }
         recognizer = new Recognizer(mContext, false, new NeuralNetworkApi.InitListener() {
             @Override
             public void onInitializationFinished() {
@@ -110,6 +121,10 @@ public class Whisper {
     }
 
     public void unloadModel() {
+        if (mVoxtralEngine != null) {
+            mVoxtralEngine.unloadModel();
+            mVoxtralEngine = null;
+        }
         if (recognizer != null) {
             recognizer.destroy();
             recognizer = null;
@@ -168,7 +183,19 @@ public class Whisper {
             if (RecordBuffer.getOutputBuffer() != null) {
                 startTime = System.currentTimeMillis();
                 sendUpdate(MSG_PROCESSING);
-                recognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
+                if (mVoxtralEngine != null) {
+                    String langCode = mLangCode;
+                    String text = mVoxtralEngine.transcribe(RecordBuffer.getSamples(), "auto".equals(langCode) ? null : langCode, 256, null);
+                    WhisperResult result = new WhisperResult(text, langCode, mAction);
+                    sendResult(result);
+                    long timeTaken = System.currentTimeMillis() - startTime;
+                    Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
+                    sendUpdate(MSG_PROCESSING_DONE);
+                } else if (recognizer != null) {
+                    recognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
+                } else {
+                    sendUpdate("Engine not initialized or file path not set");
+                }
             } else {
                 sendUpdate("Engine not initialized or file path not set");
             }
