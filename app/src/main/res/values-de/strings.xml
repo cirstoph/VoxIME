@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="voice_input">Whisper+ Spracheingabe</string>
+    <string name="voice_input">VoxIME Spracheingabe</string>
     <string name="need_record_audio_permission">"RECORD_AUDIO Berechtigung fehlt"</string>
     <string name="download_model">Modell herunterladen</string>
     <string name="status">Status:</string>
@@ -35,7 +35,7 @@
     <string name="settings_voice_input">Spracheingabe</string>
     <string name="settings_ime">Eingabemethode (IME) &amp; Test</string>
     <string name="settings_general">Allgemein</string>
-    <string name="whisper_test">Whisper+ Test</string>
+    <string name="whisper_test">VoxIME Test</string>
     <string name="settings_minimum_silence">Mindeststille im Automatikmodus (ms)</string>
     <string name="lang1">Sprache 1</string>
     <string name="lang2">Sprache 2</string>
