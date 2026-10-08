@@ -19,6 +19,7 @@ import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OnnxValue;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 
@@ -385,67 +386,109 @@ public class VoxtralEngine {
         }
         long t3 = System.currentTimeMillis();
 
-        // 4. decoder loop with KV cache
+        // 4. decoder loop with KV cache (tensors stay OnnxTensors, no Java-array copies)
         List<Long> generated = new ArrayList<>();
         float[][] curEmbeds = embeds2d;
         int curLen = 0;
-        Map<String, float[][][][]> past = emptyPast();
-
-        for (int step = 0; step < maxNewTokens; step++) {
-            int seqLen = curEmbeds.length;
-            long[] attn = new long[curLen + seqLen];
-            java.util.Arrays.fill(attn, 1L);
-            long[] posIds = new long[seqLen];
-            for (int i = 0; i < seqLen; i++) posIds[i] = curLen + i;
-
-            Map<String, OnnxTensor> feeds = new HashMap<>();
-            long[] embShape = {1, seqLen, HIDDEN};
-            float[] flatEmb = new float[seqLen * HIDDEN];
-            for (int i = 0; i < seqLen; i++) System.arraycopy(curEmbeds[i], 0, flatEmb, i * HIDDEN, HIDDEN);
-            feeds.put("inputs_embeds", OnnxTensor.createTensor(env, FloatBuffer.wrap(flatEmb), embShape));
-            feeds.put("attention_mask", OnnxTensor.createTensor(env, LongBuffer.wrap(attn), new long[]{1, attn.length}));
-            feeds.put("position_ids", OnnxTensor.createTensor(env, LongBuffer.wrap(posIds), new long[]{1, seqLen}));
+        Map<String, OnnxTensor[]> past = null;
+        OnnxTensor[] emptyKeys = new OnnxTensor[NUM_LAYERS];
+        OnnxTensor[] emptyValues = new OnnxTensor[NUM_LAYERS];
+        try {
+            long[] emptyShape = {1, KV_HEADS, 0, HEAD_DIM};
+            FloatBuffer empty = FloatBuffer.allocate(0);
             for (int l = 0; l < NUM_LAYERS; l++) {
-                feeds.put("past_key_values." + l + ".key", pastTensor(past.get("key")[l]));
-                feeds.put("past_key_values." + l + ".value", pastTensor(past.get("value")[l]));
+                emptyKeys[l] = OnnxTensor.createTensor(env, empty, emptyShape);
+                emptyValues[l] = OnnxTensor.createTensor(env, empty, emptyShape);
             }
-
-            long nextId;
-            Map<String, float[][][][]> newPast = new HashMap<>();
-            newPast.put("key", new float[NUM_LAYERS][][][]);
-            newPast.put("value", new float[NUM_LAYERS][][][]);
-            try (OrtSession.Result res = decoderSession.run(feeds)) {
-                float[][][] logits3 = (float[][][]) res.get(0).getValue();
-                float[] lastLogits = logits3[0][logits3[0].length - 1];
-                nextId = argmax(lastLogits);
+            past = new HashMap<>();
+            past.put("key", emptyKeys);
+            past.put("value", emptyValues);
+            for (int step = 0; step < maxNewTokens; step++) {
+                int seqLen = curEmbeds.length;
+                long[] attn = new long[curLen + seqLen];
+                java.util.Arrays.fill(attn, 1L);
+                long[] posIds = new long[seqLen];
+                for (int i = 0; i < seqLen; i++) posIds[i] = curLen + i;
+                Map<String, OnnxTensor> feeds = new HashMap<>();
+                long[] embShape = {1, seqLen, HIDDEN};
+                float[] flatEmb = new float[seqLen * HIDDEN];
+                for (int i = 0; i < seqLen; i++) System.arraycopy(curEmbeds[i], 0, flatEmb, i * HIDDEN, HIDDEN);
+                feeds.put("inputs_embeds", OnnxTensor.createTensor(env, FloatBuffer.wrap(flatEmb), embShape));
+                feeds.put("attention_mask", OnnxTensor.createTensor(env, LongBuffer.wrap(attn), new long[]{1, attn.length}));
+                feeds.put("position_ids", OnnxTensor.createTensor(env, LongBuffer.wrap(posIds), new long[]{1, seqLen}));
                 for (int l = 0; l < NUM_LAYERS; l++) {
-                    newPast.get("key")[l] = toJagged(res.get("present." + l + ".key").get().getValue(), KV_HEADS, HEAD_DIM);
-                    newPast.get("value")[l] = toJagged(res.get("present." + l + ".value").get().getValue(), KV_HEADS, HEAD_DIM);
+                    feeds.put("past_key_values." + l + ".key", past.get("key")[l]);
+                    feeds.put("past_key_values." + l + ".value", past.get("value")[l]);
                 }
-            } finally {
-                for (OnnxTensor t : feeds.values()) t.close();
+                long nextId;
+                OnnxTensor[] newKeys = new OnnxTensor[NUM_LAYERS];
+                OnnxTensor[] newValues = new OnnxTensor[NUM_LAYERS];
+                try (OrtSession.Result res = decoderSession.run(feeds)) {
+                    float[][][] logits3 = (float[][][]) res.get(0).getValue();
+                    float[] lastLogits = logits3[0][logits3[0].length - 1];
+                    nextId = argmax(lastLogits);
+                    for (int l = 0; l < NUM_LAYERS; l++) {
+                        newKeys[l] = (OnnxTensor) res.get("present." + l + ".key").get();
+                        newValues[l] = (OnnxTensor) res.get("present." + l + ".value").get();
+                    }
+                    // keep references to extracted tensors so they survive the Result close
+                    for (int l = 0; l < NUM_LAYERS; l++) {
+                        newKeys[l].getInfo();
+                        newValues[l].getInfo();
+                    }
+                }
+                // close created input tensors (not the reused past tensors)
+                for (Map.Entry<String, OnnxTensor> e : feeds.entrySet()) {
+                    boolean isPast = false;
+                    for (int l = 0; l < NUM_LAYERS; l++) {
+                        if (e.getValue() == past.get("key")[l] || e.getValue() == past.get("value")[l]) { isPast = true; break; }
+                    }
+                    if (!isPast) e.getValue().close();
+                }
+                if (nextId == EOS_TOKEN_ID) {
+                    for (int l = 0; l < NUM_LAYERS; l++) { newKeys[l].close(); newValues[l].close(); }
+                    break;
+                }
+                generated.add(nextId);
+                curLen += seqLen;
+                if (step > 0) {
+                    for (int l = 0; l < NUM_LAYERS; l++) {
+                        past.get("key")[l].close();
+                        past.get("value")[l].close();
+                    }
+                } else {
+                    for (int l = 0; l < NUM_LAYERS; l++) {
+                        emptyKeys[l].close();
+                        emptyValues[l].close();
+                    }
+                }
+                Map<String, OnnxTensor[]> newPast = new HashMap<>();
+                newPast.put("key", newKeys);
+                newPast.put("value", newValues);
+                past = newPast;
+                float[][] nextEmb1d;
+                try (OnnxTensor t = OnnxTensor.createTensor(env, new long[][]{{nextId}})) {
+                    Map<String, OnnxTensor> f = new HashMap<>();
+                    f.put("input_ids", t);
+                    try (OrtSession.Result res = embedSession.run(f)) {
+                        float[][][] e = (float[][][]) res.get(0).getValue();
+                        nextEmb1d = e[0];
+                    }
+                }
+                curEmbeds = nextEmb1d;
+                if (listener != null && step % 8 == 0)
+                    listener.onUpdate("Decoding " + step);
             }
-
-            if (nextId == EOS_TOKEN_ID) break;
-            generated.add(nextId);
-            curLen += seqLen;
-            past = newPast;
-            float[][] nextEmb1d;
-            try (OnnxTensor t = OnnxTensor.createTensor(env, new long[][]{{nextId}})) {
-                Map<String, OnnxTensor> f = new HashMap<>();
-                f.put("input_ids", t);
-                try (OrtSession.Result res = embedSession.run(f)) {
-                    float[][][] e = (float[][][]) res.get(0).getValue();
-                    nextEmb1d = e[0];
+        } finally {
+            if (past != null) {
+                for (int l = 0; l < NUM_LAYERS; l++) {
+                    try { if (past.get("key")[l] != null) past.get("key")[l].close(); } catch (Exception ignored) {}
+                    try { if (past.get("value")[l] != null) past.get("value")[l].close(); } catch (Exception ignored) {}
                 }
             }
-            curEmbeds = nextEmb1d;
-            if (listener != null && step % 8 == 0)
-                listener.onUpdate("Decoding " + step);
         }
         long t4 = System.currentTimeMillis();
         Log.d(TAG, "timings: mel=" + (t1 - t0) + " enc=" + (t2 - t1) + " prompt=" + (t3 - t2) + " decode=" + (t4 - t3) + " tokens=" + generated.size());
-
         return decode(generated);
     }
 
@@ -455,29 +498,9 @@ public class VoxtralEngine {
         return best;
     }
 
-    private Map<String, float[][][][]> emptyPast() {
-        Map<String, float[][][][]> past = new HashMap<>();
-        past.put("key", new float[NUM_LAYERS][][][]);
-        past.put("value", new float[NUM_LAYERS][][][]);
-        return past;
-    }
+    
 
-    private OnnxTensor pastTensor(float[][][] kv) throws OrtException {
-        // kv: [heads][seq][dim] or empty
-        int seq = kv.length == 0 ? 0 : kv[0].length;
-        if (seq == 0) {
-            return OnnxTensor.createTensor(env, FloatBuffer.allocate(0), new long[]{1, KV_HEADS, 0, HEAD_DIM});
-        }
-        float[] flat = new float[KV_HEADS * seq * HEAD_DIM];
-        for (int h = 0; h < KV_HEADS; h++)
-            for (int s = 0; s < seq; s++)
-                System.arraycopy(kv[h][s], 0, flat, (h * seq + s) * HEAD_DIM, HEAD_DIM);
-        return OnnxTensor.createTensor(env, FloatBuffer.wrap(flat), new long[]{1, KV_HEADS, seq, HEAD_DIM});
-    }
+    
 
-    private static float[][][] toJagged(Object value, int heads, int dim) {
-        // ONNX Runtime returns float[][][][]: [batch][heads][seq][dim]
-        float[][][][] v = (float[][][][]) value;
-        return v[0];
-    }
+    
 }

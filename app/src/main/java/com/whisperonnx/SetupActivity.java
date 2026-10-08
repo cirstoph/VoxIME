@@ -57,10 +57,6 @@ public class SetupActivity extends AppCompatActivity {
 
     }
 
-     public void downloadModel(View v){
-         Toast.makeText(this,"Download",Toast.LENGTH_SHORT).show();
-         startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/DocWolle/whisperOnnx/blob/main/whisper_small_int8.zip")));
-     }
 
     private static final String[] VOXTRAL_FILES = {
             "audio_encoder_q4f16.onnx", "audio_encoder_q4f16.onnx_data",
