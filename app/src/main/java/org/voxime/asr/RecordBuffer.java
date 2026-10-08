@@ -1,4 +1,4 @@
-package com.whisperonnx.asr;
+package org.voxime.asr;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

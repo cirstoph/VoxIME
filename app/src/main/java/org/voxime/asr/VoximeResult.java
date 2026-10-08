@@ -1,13 +1,12 @@
-package com.whisperonnx.asr;
+package org.voxime.asr;
 
-import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
 
-public class WhisperResult {
+public class VoximeResult {
     private final String result;
     private final String language;
-    private final Recognizer.Action task;
+    private final Transcribe.Action task;
 
-    public WhisperResult(String result, String language, Recognizer.Action task){
+    public VoximeResult(String result, String language, Transcribe.Action task){
         this.result = result;
         this.language = language;
         this.task = task;
@@ -21,7 +20,7 @@ public class WhisperResult {
         return language;
     }
 
-    public Recognizer.Action getTask() {
+    public Transcribe.Action getTask() {
         return task;
     }
 }

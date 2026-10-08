@@ -1,8 +1,6 @@
-package com.whisperonnx;
+package org.voxime;
 
 
-import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSCRIBE;
-import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSLATE;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
@@ -30,13 +28,14 @@ import android.widget.TextView;
 import androidx.core.content.ContextCompat;
 
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
-import com.whisperonnx.asr.Recorder;
-import com.whisperonnx.asr.Whisper;
-import com.whisperonnx.asr.WhisperResult;
-import com.whisperonnx.utils.HapticFeedback;
+import org.voxime.asr.Recorder;
+import org.voxime.asr.Voxime;
+import org.voxime.asr.VoximeResult;
+import org.voxime.utils.HapticFeedback;
+import static org.voxime.asr.Transcribe.ACTION_TRANSCRIBE;
 
-public class WhisperInputMethodService extends InputMethodService {
-    private static final String TAG = "WhisperInputMethodService";
+public class VoximeInputMethodService extends InputMethodService {
+    private static final String TAG = "VoximeInputMethodService";
     private ImageButton btnRecord;
     private ImageButton btnKeyboard;
     private ImageButton btnStop;
@@ -48,7 +47,7 @@ public class WhisperInputMethodService extends InputMethodService {
     private ImageButton btnLang2;
     private TextView tvStatus;
     private Recorder mRecorder = null;
-    private Whisper mWhisper = null;
+    private Voxime mVoxime = null;
     private ProgressBar processingBar = null;
     private SharedPreferences sp = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -87,7 +86,7 @@ public class WhisperInputMethodService extends InputMethodService {
     @Override
     public void onStartInputView(EditorInfo attribute, boolean restarting){
 
-        if (mWhisper == null)  initModel();
+        if (mVoxime == null)  initModel();
 
     }
 
@@ -237,7 +236,7 @@ public class WhisperInputMethodService extends InputMethodService {
                 // Pressed
                 handler.post(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
                 if (checkRecordPermission()){
-                    if (!mWhisper.isInProgress()) {
+                    if (!mVoxime.isInProgress()) {
                         HapticFeedback.vibrate(this);
                         startRecording();
                         handler.post(() -> processingBar.setProgress(100));
@@ -272,7 +271,7 @@ public class WhisperInputMethodService extends InputMethodService {
         });
 
         btnKeyboard.setOnClickListener(v -> {
-            if (mWhisper != null) stopTranscription();
+            if (mVoxime != null) stopTranscription();
             switchToPreviousInputMethod();
         });
 
@@ -335,15 +334,15 @@ public class WhisperInputMethodService extends InputMethodService {
     // Model initialization
     private void initModel() {
 
-        mWhisper = new Whisper(this);
-        mWhisper.loadModel();
-        mWhisper.setListener(new Whisper.WhisperListener() {
+        mVoxime = new Voxime(this);
+        mVoxime.loadModel();
+        mVoxime.setListener(new Voxime.VoximeListener() {
             @Override
             public void onUpdateReceived(String message) {
             }
 
             @Override
-            public void onResultReceived(WhisperResult whisperResult) {
+            public void onResultReceived(VoximeResult whisperResult) {
                 handler.post(() -> processingBar.setIndeterminate(false));
                 handler.post(() -> {
                     tvStatus.setText("");
@@ -366,19 +365,19 @@ public class WhisperInputMethodService extends InputMethodService {
         if (countDownTimer!=null) { countDownTimer.cancel();}
         handler.post(() -> processingBar.setProgress(0));
         handler.post(() -> processingBar.setIndeterminate(true));
-        if (mWhisper!=null){
-            mWhisper.setAction(ACTION_TRANSCRIBE);
+        if (mVoxime!=null){
+            mVoxime.setAction(ACTION_TRANSCRIBE);
 
             String langCode = sp.getString("language", "auto");
-            Log.d("WhisperIME","default langCode " + langCode);
-            mWhisper.setLanguage(langCode);
-            mWhisper.start();
+            Log.d("VoximeIME","default langCode " + langCode);
+            mVoxime.setLanguage(langCode);
+            mVoxime.start();
         }
     }
 
     private void stopTranscription() {
         handler.post(() -> processingBar.setIndeterminate(false));
-        mWhisper.stop();
+        mVoxime.stop();
     }
 
     private boolean checkRecordPermission() {
@@ -391,9 +390,9 @@ public class WhisperInputMethodService extends InputMethodService {
     }
 
     private void deinitModel() {
-        if (mWhisper != null) {
-            mWhisper.unloadModel();
-            mWhisper = null;
+        if (mVoxime != null) {
+            mVoxime.unloadModel();
+            mVoxime = null;
         }
     }
 }

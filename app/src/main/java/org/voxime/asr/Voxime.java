@@ -1,7 +1,9 @@
-package com.whisperonnx.asr;
+package org.voxime.asr;
+
 
 import android.content.Context;
 import android.util.Log;
+import org.voxime.utils.AppLog;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,16 +17,16 @@ import java.util.concurrent.locks.ReentrantLock;
  * The engine is only used when the model is complete (ModelFiles) and loaded
  * successfully; every state transition is observable via getState().
  */
-public class Whisper {
+public class Voxime {
 
     public enum ModelState { MISSING, LOADING, READY, ERROR }
 
-    public interface WhisperListener {
+    public interface VoximeListener {
         void onUpdateReceived(String message);
-        void onResultReceived(WhisperResult result);
+        void onResultReceived(VoximeResult result);
     }
 
-    private static final String TAG = "Whisper";
+    private static final String TAG = "Voxime";
     public static final String MSG_PROCESSING = "Processing...";
     public static final String MSG_PROCESSING_DONE = "Processing done...!";
     /** Signals that the dictation was cut off at the token limit (not a complete result). */
@@ -36,9 +38,9 @@ public class Whisper {
     private volatile boolean taskAvailable = false;
     private volatile boolean shutdown = false;
 
-    private com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.Action mAction;
+    private org.voxime.asr.Transcribe.Action mAction;
     private String mLangCode = "";
-    private WhisperListener mUpdateListener;
+    private VoximeListener mUpdateListener;
     private volatile VoxtralEngine mVoxtralEngine = null;
     private volatile ModelState mState = ModelState.MISSING;
     private volatile String mStateError = null;
@@ -47,7 +49,7 @@ public class Whisper {
     private final Context mContext;
     private long startTime;
 
-    public Whisper(Context context) {
+    public Voxime(Context context) {
         mContext = context;
         File dir = mContext.getExternalFilesDir(null);
         if (dir != null && !dir.exists()) dir.mkdirs();
@@ -63,7 +65,7 @@ public class Whisper {
     public String getStateError() { return mStateError; }
     public boolean isReady() { return mState == ModelState.READY && mVoxtralEngine != null; }
 
-    public void setListener(WhisperListener listener) {
+    public void setListener(VoximeListener listener) {
         this.mUpdateListener = listener;
     }
 
@@ -98,12 +100,14 @@ public class Whisper {
                 mVoxtralEngine = engine;
                 mState = ModelState.READY;
                 mStateError = null;
+                AppLog.i(mContext, TAG, "state -> READY");
                 Log.d(TAG, "Voxtral engine initialized");
             } catch (Exception e) {
                 engine.unloadModel();
                 mVoxtralEngine = null;
                 mState = ModelState.ERROR;
                 mStateError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                AppLog.e(mContext, TAG, "Voxtral init error: " + mStateError, e);
                 Log.e(TAG, "Voxtral init error", e);
             }
         }, "voxtral-loader");
@@ -148,7 +152,7 @@ public class Whisper {
         mState = ModelState.MISSING;
     }
 
-    public void setAction(com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.Action action) {
+    public void setAction(org.voxime.asr.Transcribe.Action action) {
         this.mAction = action;
     }
 
@@ -220,6 +224,7 @@ public class Whisper {
                 return;
             }
             startTime = System.currentTimeMillis();
+            AppLog.i(mContext, TAG, "transcribe start: lang=" + mLangCode + " samples=" + samples.length);
             sendUpdate(MSG_PROCESSING);
             VoxtralEngine.EngineResult res = engine.transcribe(samples,
                     "auto".equals(mLangCode) ? null : mLangCode,
@@ -228,13 +233,14 @@ public class Whisper {
                         @Override
                         public void onUpdate(String message) { sendUpdate(message); }
                     });
-            WhisperResult result = new WhisperResult(res.text, mLangCode, mAction);
+            VoximeResult result = new VoximeResult(res.text, mLangCode, mAction);
             sendResult(result);
             if (res.truncated) sendUpdate(MSG_TRUNCATED);
             long timeTaken = System.currentTimeMillis() - startTime;
             Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
             sendUpdate(MSG_PROCESSING_DONE);
         } catch (Exception e) {
+            AppLog.e(mContext, TAG, "transcription failed", e);
             Log.e(TAG, "Error during transcription", e);
             sendUpdate("Transcription failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         } finally {
@@ -243,12 +249,12 @@ public class Whisper {
     }
 
     private void sendUpdate(String message) {
-        WhisperListener l = mUpdateListener;
+        VoximeListener l = mUpdateListener;
         if (l != null) l.onUpdateReceived(message);
     }
 
-    private void sendResult(WhisperResult whisperResult) {
-        WhisperListener l = mUpdateListener;
+    private void sendResult(VoximeResult whisperResult) {
+        VoximeListener l = mUpdateListener;
         if (l != null) l.onResultReceived(whisperResult);
     }
 }

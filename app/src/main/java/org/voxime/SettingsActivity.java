@@ -1,4 +1,4 @@
-package com.whisperonnx;
+package org.voxime;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
@@ -24,8 +24,8 @@ import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import com.google.android.material.slider.RangeSlider;
-import com.whisperonnx.utils.LanguagePairAdapter;
-import com.whisperonnx.utils.ThemeUtils;
+import org.voxime.utils.LanguagePairAdapter;
+import org.voxime.utils.ThemeUtils;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,4 @@
-package com.whisperonnx;
+package org.voxime;
 
 import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
 
@@ -18,8 +18,9 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 
-import com.whisperonnx.asr.ModelFiles;
-import com.whisperonnx.utils.ThemeUtils;
+import org.voxime.asr.ModelFiles;
+import org.voxime.utils.AppLog;
+import org.voxime.utils.ThemeUtils;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -81,9 +82,12 @@ public class SetupActivity extends AppCompatActivity {
         btn.setEnabled(false);
         Thread t = new Thread(() -> {
             try {
+                AppLog.i(SetupActivity.this, "Setup", "voxtral download start");
                 for (String name : VOXTRAL_FILES) {
+                    AppLog.i(SetupActivity.this, "Setup", "downloading " + name);
                     downloadOne(name, dir);
                 }
+                AppLog.i(SetupActivity.this, "Setup", "voxtral download complete, files valid: " + ModelFiles.isComplete(dir));
                 runOnUiThread(() -> {
                     progressBar.setVisibility(View.GONE);
                     extractedFileTV.setVisibility(View.VISIBLE);
@@ -93,6 +97,7 @@ public class SetupActivity extends AppCompatActivity {
                     voxtralDownloading = false;
                 });
             } catch (Exception e) {
+                AppLog.e(SetupActivity.this, "Setup", "voxtral download failed", e);
                 Log.e("SetupActivity", "Voxtral download failed", e);
                 runOnUiThread(() -> {
                     progressBar.setVisibility(View.GONE);

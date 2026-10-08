@@ -1,4 +1,4 @@
-package com.whisperonnx.utils;
+package org.voxime.utils;
 
 import android.app.Activity;
 import android.content.res.Configuration;

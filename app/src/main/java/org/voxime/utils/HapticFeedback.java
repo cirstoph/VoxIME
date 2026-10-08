@@ -1,4 +1,4 @@
-package com.whisperonnx.utils;
+package org.voxime.utils;
 
 import static android.content.Context.VIBRATOR_SERVICE;
 

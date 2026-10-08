@@ -1,5 +1,6 @@
-package com.whisperonnx.utils;
+package org.voxime.utils;
 
+import org.voxime.asr.Transcribe;
 import android.content.Context;
 import android.util.Pair;
 import android.view.View;
@@ -7,8 +8,7 @@ import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
 
-import com.whisperonnx.R;
-import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
+import org.voxime.R;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +43,7 @@ public class LanguagePairAdapter extends ArrayAdapter<Pair<String, String>> {
     public static List<Pair<String, String>> getLanguagePairs(Context context){
         // Create pairs of code and display name, then sort by display name
         List<Pair<String, String>> languagePairs = new ArrayList<>();
-        String[] sortedLanguages = Recognizer.LANGUAGES.clone();
+        String[] sortedLanguages = Transcribe.LANGUAGES.clone();
         for (String code : sortedLanguages) {
             Locale locale = new Locale(code);
             languagePairs.add(new Pair<>(code, locale.getDisplayLanguage()));

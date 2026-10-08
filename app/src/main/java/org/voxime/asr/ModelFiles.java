@@ -1,4 +1,4 @@
-package com.whisperonnx.asr;
+package org.voxime.asr;
 
 import java.io.File;
 import java.io.IOException;

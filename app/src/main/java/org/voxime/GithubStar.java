@@ -1,4 +1,4 @@
-package com.whisperonnx;
+package org.voxime;
 
 import android.app.AlertDialog;
 import android.content.Context;

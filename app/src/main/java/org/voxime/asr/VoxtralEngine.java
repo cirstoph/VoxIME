@@ -1,7 +1,8 @@
-package com.whisperonnx.asr;
+package org.voxime.asr;
 
 import android.content.Context;
 import android.util.Log;
+import org.voxime.utils.AppLog;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -91,6 +92,7 @@ public class VoxtralEngine {
         decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
 
         loadVocab();
+        AppLog.i(context, TAG, "engine loaded (3 sessions + vocab)");
         Log.d(TAG, "Voxtral engine loaded");
     }
 
@@ -175,7 +177,7 @@ public class VoxtralEngine {
         return new String(bos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    // ---------- Mel spectrogram (exact transformers.js Whisper feature extractor) ----------
+    // ---------- Mel spectrogram (exact transformers.js Voxime feature extractor) ----------
 
     static float[] melFilterBank(int numMelFilters, int numFreqBins) {
         double melMin = hzToMelSlaney(0.0);
@@ -463,6 +465,8 @@ public class VoxtralEngine {
                 curEmbeds = nextEmb1d;
                 if (listener != null && step % 8 == 0)
                     listener.onUpdate("Decoding " + step);
+                if (step % 16 == 0)
+                    AppLog.i(context, TAG, "decode step " + step + ", curLen=" + curLen);
             }
         } finally {
             if (prevResult != null) {
@@ -470,7 +474,9 @@ public class VoxtralEngine {
             }
         }
         long t4 = System.currentTimeMillis();
-        Log.d(TAG, "timings: mel=" + (t1 - t0) + " enc=" + (t2 - t1) + " prompt=" + (t3 - t2) + " decode=" + (t4 - t3) + " tokens=" + generated.size());
+        String timing = "timings: mel=" + (t1 - t0) + "ms enc=" + (t2 - t1) + "ms prompt=" + (t3 - t2) + "ms decode=" + (t4 - t3) + "ms tokens=" + generated.size();
+        Log.d(TAG, timing);
+        AppLog.i(context, TAG, timing);
         boolean truncated = !generated.isEmpty() && generated.size() >= maxNewTokens;
         return new EngineResult(decode(generated), truncated);
     }

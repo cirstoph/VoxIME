@@ -28,6 +28,10 @@ Beim ersten Start der App:
   - USB-Debugging aktivieren
   - `adb shell settings put secure voice_recognition_service org.voxime/com.whisperonnx.WhisperRecognitionService`
 
+## Fehlerdiagnose: Log teilen
+
+Die App schreibt alle Engine-, Download- und Fehlermeldungen in `voxime.log` (im App-Datenordner). Im Hauptmenü (drei Punkte) gibt es **„Log teilen"** — damit kannst du die Datei per E-Mail, Messenger o. ä. weitergeben. Bei Problemen hilft sie extrem bei der Ferndiagnose.
+
 ## Tipps für gute Ergebnisse
 
 - Sprechertaste gedrückt halten (oder automatischen Modus verwenden)
@@ -48,7 +52,7 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Signierte APK im Branch `vibe/finish-voxtral-apk` unter [`apks/VoxIME-0.1.1.apk`](https://github.com/cirstoph/VoxIME/raw/vibe/finish-voxtral-apk/apks/VoxIME-0.1.1.apk) (39,5 MB, arm64-v8a, minSdk 28, Version 0.1.1).
+Signierte APK im Branch `vibe/finish-voxtral-apk` unter [`apks/VoxIME-0.2.0.apk`](https://github.com/cirstoph/VoxIME/raw/vibe/finish-voxtral-apk/apks/VoxIME-0.2.0.apk) (39,5 MB, arm64-v8a, minSdk 28, Version 0.2.0).
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate") wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 

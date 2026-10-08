@@ -29,6 +29,7 @@
     <string name="tts_initialization_failed">TTS: Initialization failed</string>
     <string name="auto_button">automatic mode</string>
     <string name="error_no_input">No voice input received</string>
+    <string name="menu_share_log">Share log</string>
     <string name="download_voxtral">Download Voxtral model (~2.7 GB)</string>
     <string name="download_voxtral_success">Voxtral model downloaded successfully</string>
     <string name="download_voxtral_failed">Download failed</string>
@@ -38,7 +39,7 @@
     <string name="settings_voice_input">Voice Input</string>
     <string name="settings_ime">Input Method (IME) &amp; Test</string>
     <string name="settings_general">General</string>
-    <string name="whisper_test">VoxIME Test</string>
+    <string name="app_title">VoxIME Test</string>
     <string name="settings_minimum_silence">Minimum silence in automatic mode (ms)</string>
     <string name="lang1">Language 1</string>
     <string name="lang2">Language 2</string>

@@ -1,14 +1,15 @@
-package com.whisperonnx;
+package org.voxime;
 
-import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSCRIBE;
-import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSLATE;
 
+import static org.voxime.asr.Transcribe.ACTION_TRANSCRIBE;
+import org.voxime.asr.Transcribe;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import java.io.File;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -40,12 +41,11 @@ import androidx.core.content.ContextCompat;
 
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
-import com.whisperonnx.asr.Recorder;
-import com.whisperonnx.asr.Whisper;
-import com.whisperonnx.asr.WhisperResult;
-import com.whisperonnx.utils.HapticFeedback;
-import com.whisperonnx.utils.ThemeUtils;
-import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
+import org.voxime.asr.Recorder;
+import org.voxime.asr.Voxime;
+import org.voxime.asr.VoximeResult;
+import org.voxime.utils.HapticFeedback;
+import org.voxime.utils.ThemeUtils;
 
 import org.woheller69.freeDroidWarn.FreeDroidWarn;
 
@@ -69,7 +69,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnInfo;
 
     private Recorder mRecorder = null;
-    private Whisper mWhisper = null;
+    private Voxime mVoxime = null;
 
     private SharedPreferences sp = null;
 
@@ -101,6 +101,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
         int id = item.getItemId();
+        if (id == R.id.menu_share_log) {
+            shareLogFile();
+            return true;
+        }
         if (id == R.id.menu_settings){
             startActivity(new Intent(this, SettingsActivity.class));
         }
@@ -116,8 +120,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         ThemeUtils.setStatusBarAppearance(this);
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
-        if (!com.whisperonnx.asr.Whisper.isModelInstalled(this)) {
-            startActivity(new Intent(this, com.whisperonnx.SetupActivity.class));
+        if (!org.voxime.asr.Voxime.isModelInstalled(this)) {
+            startActivity(new Intent(this, org.voxime.SetupActivity.class));
             finish();
             return;
         }
@@ -174,7 +178,7 @@ public class MainActivity extends AppCompatActivity {
                 // Pressed
                 runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background_pressed));
                 Log.d(TAG, "Start recording...");
-                if (!mWhisper.isInProgress()) {
+                if (!mVoxime.isInProgress()) {
                     HapticFeedback.vibrate(this);
                     startRecording();
                     runOnUiThread(() -> processingBar.setProgress(100));
@@ -235,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
                     HapticFeedback.vibrate(mContext);
                     runOnUiThread(() -> btnRecord.setBackgroundResource(R.drawable.rounded_button_background));
 
-                    if (translate.isChecked()) startProcessing(ACTION_TRANSLATE);
+                    if (translate.isChecked()) startProcessing(ACTION_TRANSCRIBE);
                     else startProcessing(ACTION_TRANSCRIBE);
                 } else if (message.equals(Recorder.MSG_RECORDING_ERROR)) {
                     HapticFeedback.vibrate(mContext);
@@ -260,7 +264,7 @@ public class MainActivity extends AppCompatActivity {
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         List<InputMethodInfo> enabledInputMethodList = imm.getEnabledInputMethodList();
 
-        String myInputMethodId = getPackageName() + "/" + WhisperInputMethodService.class.getName();
+        String myInputMethodId = getPackageName() + "/" + VoximeInputMethodService.class.getName();
         boolean inputMethodEnabled = false;
         for (InputMethodInfo imi : enabledInputMethodList) {
             if (imi.getId().equals(myInputMethodId)) {
@@ -275,44 +279,62 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // Model initialization
+    private void shareLogFile() {
+        File logFile = org.voxime.utils.AppLog.getLogFile(this);
+        if (logFile == null || !logFile.isFile()) {
+            Toast.makeText(this, "No log file yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(this, "org.voxime.fileprovider", logFile);
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_STREAM, uri);
+            share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(share, "VoxIME log"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not share log: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void initModel() {
-        mWhisper = new Whisper(this);
-        mWhisper.loadModel();
-        mWhisper.setListener(new Whisper.WhisperListener() {
+        mVoxime = new Voxime(this);
+        mVoxime.loadModel();
+        mVoxime.setListener(new Voxime.VoximeListener() {
             @Override
             public void onUpdateReceived(String message) {
                 Log.d(TAG, "Update is received, Message: " + message);
 
-                if (message.equals(Whisper.MSG_PROCESSING)) {
+                if (message.equals(Voxime.MSG_PROCESSING)) {
                     runOnUiThread(() -> tvStatus.setText(getString(R.string.processing)));
                     startTime = System.currentTimeMillis();
                 }
             }
 
             @Override
-            public void onResultReceived(WhisperResult whisperResult) {
+            public void onResultReceived(VoximeResult result) {
                 long timeTaken = System.currentTimeMillis() - startTime;
-                runOnUiThread(() -> tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"+ getString(R.string.language) + " " + new Locale(whisperResult.getLanguage()).getDisplayLanguage() + " " + (whisperResult.getTask() == ACTION_TRANSCRIBE ? getString(R.string.mode_transcription) : getString(R.string.mode_translation))));
+                runOnUiThread(() -> tvStatus.setText(getString(R.string.processing_done) + timeTaken + "\u2009ms" + "\n"+ getString(R.string.language) + " " + new Locale(result.getLanguage()).getDisplayLanguage() + " " + (result.getTask() == ACTION_TRANSCRIBE ? getString(R.string.mode_transcription) : getString(R.string.mode_translation))));
                 runOnUiThread(() -> processingBar.setIndeterminate(false));
-                Log.d(TAG, "Result: " + whisperResult.getResult() + " " + whisperResult.getLanguage() + " " + (whisperResult.getTask() == ACTION_TRANSCRIBE ? "transcribing" : "translating"));
-                if ((whisperResult.getLanguage().equals("zh")) && (whisperResult.getTask() == ACTION_TRANSCRIBE)){
+                Log.d(TAG, "Result: " + result.getResult() + " " + result.getLanguage() + " " + (result.getTask() == ACTION_TRANSCRIBE ? "transcribing" : "translating"));
+                if ((result.getLanguage().equals("zh")) && (result.getTask() == ACTION_TRANSCRIBE)){
                     boolean simpleChinese = sp.getBoolean("simpleChinese",false);  //convert to desired Chinese mode
-                    String result = simpleChinese ? ZhConverterUtil.toSimple(whisperResult.getResult()) : ZhConverterUtil.toTraditional(whisperResult.getResult());
-                    runOnUiThread(() -> tvResult.append(result));
+                    String converted = simpleChinese ? ZhConverterUtil.toSimple(result.getResult()) : ZhConverterUtil.toTraditional(result.getResult());
+                    runOnUiThread(() -> tvResult.append(converted));
                 } else {
-                    runOnUiThread(() -> tvResult.append(whisperResult.getResult()));
+                    runOnUiThread(() -> tvResult.append(result.getResult()));
                 }
                 if (modeTTS.isChecked()){
-                    tts.speak(whisperResult.getResult(), TextToSpeech.QUEUE_FLUSH, null, null);
+                    tts.speak(result.getResult(), TextToSpeech.QUEUE_FLUSH, null, null);
                 }
             }
         });
     }
 
     private void deinitModel() {
-        if (mWhisper != null) {
-            mWhisper.unloadModel();
-            mWhisper = null;
+        if (mVoxime != null) {
+            mVoxime.unloadModel();
+            mVoxime = null;
         }
     }
 
@@ -364,21 +386,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // Transcription calls
-    private void startProcessing(Recognizer.Action action) {
+    private void startProcessing(Transcribe.Action action) {
         if (countDownTimer!=null) { countDownTimer.cancel();}
         runOnUiThread(() -> {
             processingBar.setProgress(0);
             processingBar.setIndeterminate(true);
         });
-        mWhisper.setAction(action);
+        mVoxime.setAction(action);
         String langCode = sp.getString("language", "auto");
-        mWhisper.setLanguage(langCode);
-        mWhisper.start();
+        mVoxime.setLanguage(langCode);
+        mVoxime.start();
     }
 
     private void stopProcessing() {
         processingBar.setIndeterminate(false);
-        if (mWhisper != null && mWhisper.isInProgress()) mWhisper.stop();
+        if (mVoxime != null && mVoxime.isInProgress()) mVoxime.stop();
     }
 
 }

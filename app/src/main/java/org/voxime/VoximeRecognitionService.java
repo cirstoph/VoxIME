@@ -1,9 +1,8 @@
-package com.whisperonnx;
+package org.voxime;
 
 import static android.speech.SpeechRecognizer.ERROR_CLIENT;
 import static android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS;
 
-import static com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.ACTION_TRANSCRIBE;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -24,16 +23,18 @@ import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
-import com.whisperonnx.asr.Recorder;
-import com.whisperonnx.asr.Whisper;
-import com.whisperonnx.asr.WhisperResult;
-import com.whisperonnx.utils.HapticFeedback;
+import org.voxime.utils.AppLog;
+import org.voxime.asr.Recorder;
+import org.voxime.asr.Voxime;
+import org.voxime.asr.VoximeResult;
+import org.voxime.utils.HapticFeedback;
 import java.util.ArrayList;
+import static org.voxime.asr.Transcribe.ACTION_TRANSCRIBE;
 
-public class WhisperRecognitionService extends RecognitionService {
-    private static final String TAG = "WhisperRecognitionService";
+public class VoximeRecognitionService extends RecognitionService {
+    private static final String TAG = "VoximeRecognitionService";
     private Recorder mRecorder = null;
-    private Whisper mWhisper = null;
+    private Voxime mVoxime = null;
     private boolean recognitionCancelled = false;
     private SharedPreferences sp = null;
 
@@ -95,7 +96,7 @@ public class WhisperRecognitionService extends RecognitionService {
             }
         });
 
-        if (!mWhisper.isInProgress()) {
+        if (!mVoxime.isInProgress()) {
             HapticFeedback.vibrate(this);
             startRecording();
             try {
@@ -131,11 +132,11 @@ public class WhisperRecognitionService extends RecognitionService {
     // Model initialization
     private void initModel(Callback callback, String langCode) {
 
-        mWhisper = new Whisper(this);
-        mWhisper.loadModel();
-        mWhisper.setLanguage(langCode);
+        mVoxime = new Voxime(this);
+        mVoxime.loadModel();
+        mVoxime.setLanguage(langCode);
         Log.d(TAG, "Language token " + langCode);
-        mWhisper.setListener(new Whisper.WhisperListener() {
+        mVoxime.setListener(new Voxime.VoximeListener() {
             private boolean finished = false;
             @Override
             public void onUpdateReceived(String message) {
@@ -148,7 +149,7 @@ public class WhisperRecognitionService extends RecognitionService {
                 }
             }
             @Override
-            public void onResultReceived(WhisperResult whisperResult) {
+            public void onResultReceived(VoximeResult whisperResult) {
                 if (finished) return;
                 finished = true;
                 try {
@@ -172,6 +173,7 @@ public class WhisperRecognitionService extends RecognitionService {
     }
 
     private void finishWithError(Callback callback, String message) {
+        AppLog.e(this, TAG, "recognition error: " + message, null);
         Log.e(TAG, "RecognitionService error: " + message);
         try {
             callback.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY);
@@ -199,14 +201,14 @@ public class WhisperRecognitionService extends RecognitionService {
                         @Override
                         public void onToastHidden() {
                             super.onToastHidden();
-                            if (mWhisper!=null) toast.show();
+                            if (mVoxime!=null) toast.show();
                         }
                     });
                 }
                 toast.show();
             });
-            mWhisper.setAction(ACTION_TRANSCRIBE);
-            mWhisper.start();
+            mVoxime.setAction(ACTION_TRANSCRIBE);
+            mVoxime.start();
             Log.d(TAG,"Start Transcription");
         }
     }
@@ -216,9 +218,9 @@ public class WhisperRecognitionService extends RecognitionService {
         deinitModel();
     }
     private void deinitModel() {
-        if (mWhisper != null) {
-            mWhisper.unloadModel();
-            mWhisper = null;
+        if (mVoxime != null) {
+            mVoxime.unloadModel();
+            mVoxime = null;
         }
     }
 
