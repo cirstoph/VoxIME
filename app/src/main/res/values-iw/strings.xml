@@ -2,7 +2,6 @@
 <resources>
     <string name="voice_input">קלט קולי VoxIME</string>
     <string name="need_record_audio_permission">הרשאת RECORD_AUDIO לא ניתנה</string>
-    <string name="download_model">מודל הורדה</string>
     <string name="status">סטטוס:</string>
     <string name="append">צירוף:</string>
     <string name="translate">תרגם לאנגלית:</string>

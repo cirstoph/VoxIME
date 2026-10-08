@@ -187,7 +187,7 @@ public class Whisper {
                 sendUpdate(MSG_PROCESSING);
                 if (mVoxtralEngine != null) {
                     String langCode = mLangCode;
-                    String text = mVoxtralEngine.transcribe(RecordBuffer.getSamples(), "auto".equals(langCode) ? null : langCode, 256, null);
+                    String text = mVoxtralEngine.transcribe(RecordBuffer.getSamples(), "auto".equals(langCode) ? null : langCode, 64, new VoxtralEngine.Listener() { @Override public void onUpdate(String message) { sendUpdate(message); } @Override public void onResult(String text, String language) { } });
                     WhisperResult result = new WhisperResult(text, langCode, mAction);
                     sendResult(result);
                     long timeTaken = System.currentTimeMillis() - startTime;

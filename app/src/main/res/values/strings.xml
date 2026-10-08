@@ -3,7 +3,6 @@
     <string name="app_name" translatable="false">VoxIME</string>
     <string name="voice_input">VoxIME Voice Input</string>
     <string name="need_record_audio_permission">"RECORD_AUDIO permission is not granted"</string>
-    <string name="download_model">Download Model</string>
     <string name="status">Status:</string>
     <string name="append">Append:</string>
     <string name="translate">Translate to English:</string>
