@@ -280,10 +280,14 @@ public class WhisperInputMethodService extends InputMethodService {
             if (mRecorder!=null) mRecorder.requestStopVad();
         });
 
+        // Voxtral currently supports transcription only: hide the translate toggle.
         btnTranslate.setOnClickListener(v -> {
-            translate = !translate;
-            btnTranslate.setImageResource(translate ? R.drawable.ic_english_on_36dp : R.drawable.ic_english_off_36dp);
+            translate = false;
+            btnTranslate.setImageResource(R.drawable.ic_english_off_36dp);
         });
+        btnTranslate.setImageDrawable(null);
+        btnTranslate.setEnabled(false);
+        btnTranslate.setVisibility(android.view.View.GONE);
 
         btnEnter.setOnClickListener(v -> {
             getCurrentInputConnection().sendKeyEvent(new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER));
@@ -363,8 +367,7 @@ public class WhisperInputMethodService extends InputMethodService {
         handler.post(() -> processingBar.setProgress(0));
         handler.post(() -> processingBar.setIndeterminate(true));
         if (mWhisper!=null){
-            if (translate) mWhisper.setAction(ACTION_TRANSLATE);
-            else mWhisper.setAction(ACTION_TRANSCRIBE);
+            mWhisper.setAction(ACTION_TRANSCRIBE);
 
             String langCode = sp.getString("language", "auto");
             Log.d("WhisperIME","default langCode " + langCode);

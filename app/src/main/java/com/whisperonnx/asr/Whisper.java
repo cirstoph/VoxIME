@@ -1,15 +1,7 @@
 package com.whisperonnx.asr;
 
-import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
-
 import android.content.Context;
-import android.content.Intent;
 import android.util.Log;
-
-import com.whisperonnx.SetupActivity;
-import com.whisperonnx.voice_translation.neural_networks.NeuralNetworkApi;
-import com.whisperonnx.voice_translation.neural_networks.voice.Recognizer;
-import com.whisperonnx.voice_translation.neural_networks.voice.RecognizerListener;
 
 import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,7 +9,15 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * Frontend for all input paths (app, IME, RecognitionService).
+ *
+ * The engine is only used when the model is complete (ModelFiles) and loaded
+ * successfully; every state transition is observable via getState().
+ */
 public class Whisper {
+
+    public enum ModelState { MISSING, LOADING, READY, ERROR }
 
     public interface WhisperListener {
         void onUpdateReceived(String message);
@@ -27,121 +27,140 @@ public class Whisper {
     private static final String TAG = "Whisper";
     public static final String MSG_PROCESSING = "Processing...";
     public static final String MSG_PROCESSING_DONE = "Processing done...!";
+    /** Signals that the dictation was cut off at the token limit (not a complete result). */
+    public static final String MSG_TRUNCATED = "Result truncated: token limit reached";
 
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
-
-    private Recognizer.Action mAction;
-    private String mLangCode = "";
-    private WhisperListener mUpdateListener;
-    private VoxtralEngine mVoxtralEngine = null;
-
-    private final Lock taskLock = new ReentrantLock();
+    private final Lock taskLock = new ReentrantLock(true);
     private final Condition hasTask = taskLock.newCondition();
     private volatile boolean taskAvailable = false;
-    private Recognizer recognizer = null;
-    private Context mContext;
+    private volatile boolean shutdown = false;
+
+    private com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.Action mAction;
+    private String mLangCode = "";
+    private WhisperListener mUpdateListener;
+    private volatile VoxtralEngine mVoxtralEngine = null;
+    private volatile ModelState mState = ModelState.MISSING;
+    private volatile String mStateError = null;
+    private Thread mWorkerThread = null;
+    private Thread mLoaderThread = null;
+    private final Context mContext;
     private long startTime;
 
     public Whisper(Context context) {
         mContext = context;
-
-        //check if model is installed
-        File sdcardDataFolder = mContext.getExternalFilesDir(null);
-
-        if (sdcardDataFolder != null && !sdcardDataFolder.exists() && !sdcardDataFolder.mkdirs()) {
-            Log.e(TAG, "Failed to make directory: " + sdcardDataFolder);
-            return;
-        }
-
-        File[] files = sdcardDataFolder.listFiles();
-
-        int fileCount = 0;
-        for (File file : files) {
-            if (file.isFile()) {
-                fileCount++;
-            }
-        }
-        if (fileCount < 6) { //install model
-            Intent intent = new Intent(mContext, SetupActivity.class);
-            intent.addFlags(FLAG_ACTIVITY_NEW_TASK);
-            mContext.startActivity(intent);
-        } else { // Start thread for RecordBuffer transcription
-            Thread threadProcessRecordBuffer = new Thread(this::processRecordBufferLoop);
-            threadProcessRecordBuffer.start();
-        }
-
+        File dir = mContext.getExternalFilesDir(null);
+        if (dir != null && !dir.exists()) dir.mkdirs();
+        mState = ModelState.MISSING;
     }
+
+    /** True if all seven model files are present with the expected sizes. */
+    public static boolean isModelInstalled(Context context) {
+        return ModelFiles.isComplete(context.getExternalFilesDir(null));
+    }
+
+    public ModelState getState() { return mState; }
+    public String getStateError() { return mStateError; }
+    public boolean isReady() { return mState == ModelState.READY && mVoxtralEngine != null; }
 
     public void setListener(WhisperListener listener) {
         this.mUpdateListener = listener;
     }
 
-    public void loadModel() {
-        if (new java.io.File(mContext.getExternalFilesDir(null), "decoder_model_merged_q4.onnx").exists()) {
-            mVoxtralEngine = new VoxtralEngine(mContext);
-            new Thread(() -> {
-                try {
-                    mVoxtralEngine.loadModel();
-                    Log.d(TAG, "Voxtral engine initialized");
-                } catch (Exception e) {
-                    Log.e(TAG, "Voxtral init error", e);
-                }
-            }).start();
+    /**
+     * Loads the Voxtral engine if and only if the model is complete.
+     * Idempotent; loading happens on a background thread.
+     */
+    public synchronized void loadModel() {
+        if (mState == ModelState.READY || mState == ModelState.LOADING) return;
+        if (mVoxtralEngine != null) return;
+        File dir = mContext.getExternalFilesDir(null);
+        if (dir == null) {
+            mState = ModelState.ERROR;
+            mStateError = "External storage unavailable";
             return;
         }
-        recognizer = new Recognizer(mContext, false, new NeuralNetworkApi.InitListener() {
-            @Override
-            public void onInitializationFinished() {
-                Log.d(TAG, "Recognizer initialized");
+        if (!ModelFiles.isComplete(dir)) {
+            mState = ModelState.MISSING;
+            Log.w(TAG, "Model incomplete, not loading engine");
+            return;
+        }
+        mState = ModelState.LOADING;
+        startWorkerIfNeeded();
+        mLoaderThread = new Thread(() -> {
+            VoxtralEngine engine = new VoxtralEngine(mContext);
+            try {
+                engine.loadModel();
+                if (shutdown) {
+                    engine.unloadModel();
+                    return;
+                }
+                mVoxtralEngine = engine;
+                mState = ModelState.READY;
+                mStateError = null;
+                Log.d(TAG, "Voxtral engine initialized");
+            } catch (Exception e) {
+                engine.unloadModel();
+                mVoxtralEngine = null;
+                mState = ModelState.ERROR;
+                mStateError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                Log.e(TAG, "Voxtral init error", e);
             }
-
-            @Override
-            public void onError(int[] reasons, long value) {
-                Log.d(TAG, "Recognizer init error");
-            }
-        });
-
-
-        recognizer.addCallback(new RecognizerListener() {
-            @Override
-            public void onSpeechRecognizedResult(String text, String languageCode, double confidenceScore, boolean isFinal) {
-                Log.d(TAG, languageCode + " " + text);
-                WhisperResult whisperResult = new WhisperResult(text,languageCode, mAction);
-
-                sendResult(whisperResult);
-
-                long timeTaken = System.currentTimeMillis() - startTime;
-                Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
-                sendUpdate(MSG_PROCESSING_DONE);
-            }
-
-            @Override
-            public void onError(int[] reasons, long value) {
-                Log.d(TAG, "ERROR during recognition");
-            }
-        });
+        }, "voxtral-loader");
+        mLoaderThread.start();
     }
 
+    private void startWorkerIfNeeded() {
+        if (mWorkerThread != null && mWorkerThread.isAlive()) return;
+        taskLock.lock();
+        try {
+            shutdown = false;
+        } finally {
+            taskLock.unlock();
+        }
+        mWorkerThread = new Thread(this::processRecordBufferLoop, "whisper-worker");
+        mWorkerThread.start();
+    }
+
+    /** Stops the worker, waits for the current transcription to finish, releases the engine. */
     public void unloadModel() {
-        if (mVoxtralEngine != null) {
-            mVoxtralEngine.unloadModel();
-            mVoxtralEngine = null;
+        shutdown = true;
+        taskLock.lock();
+        try {
+            taskAvailable = false;
+            hasTask.signalAll();
+        } finally {
+            taskLock.unlock();
         }
-        if (recognizer != null) {
-            recognizer.destroy();
-            recognizer = null;
+        Thread w = mWorkerThread;
+        if (w != null) {
+            try { w.join(3000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            mWorkerThread = null;
         }
+        Thread l = mLoaderThread;
+        if (l != null) {
+            try { l.join(3000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            mLoaderThread = null;
+        }
+        VoxtralEngine e = mVoxtralEngine;
+        mVoxtralEngine = null;
+        if (e != null) e.unloadModel();
+        mState = ModelState.MISSING;
     }
 
-    public void setAction(Recognizer.Action action) {
+    public void setAction(com.whisperonnx.voice_translation.neural_networks.voice.Recognizer.Action action) {
         this.mAction = action;
     }
 
-    public void setLanguage(String language){
+    public void setLanguage(String language) {
         this.mLangCode = language;
     }
 
     public void start() {
+        if (!isReady()) {
+            sendUpdate(mState == ModelState.LOADING ? "Engine still loading" : "Engine not ready");
+            return;
+        }
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Execution is already in progress...");
             return;
@@ -164,61 +183,72 @@ public class Whisper {
     }
 
     private void processRecordBufferLoop() {
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!shutdown && !Thread.currentThread().isInterrupted()) {
+            boolean run = false;
             taskLock.lock();
             try {
-                while (!taskAvailable) {
+                if (taskAvailable) {
+                    run = true;
+                    taskAvailable = false;
+                } else {
                     hasTask.await();
+                    run = taskAvailable;
+                    taskAvailable = false;
                 }
-                processRecordBuffer();
-                taskAvailable = false;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                return;
             } finally {
                 taskLock.unlock();
+            }
+            if (run && !shutdown) {
+                processRecordBuffer();
             }
         }
     }
 
     private void processRecordBuffer() {
         try {
-            if (RecordBuffer.getOutputBuffer() != null) {
-                startTime = System.currentTimeMillis();
-                sendUpdate(MSG_PROCESSING);
-                if (mVoxtralEngine != null) {
-                    String langCode = mLangCode;
-                    String text = mVoxtralEngine.transcribe(RecordBuffer.getSamples(), "auto".equals(langCode) ? null : langCode, 64, new VoxtralEngine.Listener() { @Override public void onUpdate(String message) { sendUpdate(message); } @Override public void onResult(String text, String language) { } });
-                    WhisperResult result = new WhisperResult(text, langCode, mAction);
-                    sendResult(result);
-                    long timeTaken = System.currentTimeMillis() - startTime;
-                    Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
-                    sendUpdate(MSG_PROCESSING_DONE);
-                } else if (recognizer != null) {
-                    recognizer.recognize(RecordBuffer.getSamples(),1, mLangCode, mAction );
-                } else {
-                    sendUpdate("Engine not initialized or file path not set");
-                }
-            } else {
+            VoxtralEngine engine = mVoxtralEngine;
+            if (engine == null) {
                 sendUpdate("Engine not initialized or file path not set");
+                return;
             }
+            float[] samples = RecordBuffer.getSamples();
+            if (samples == null) {
+                sendUpdate("Engine not initialized or file path not set");
+                return;
+            }
+            startTime = System.currentTimeMillis();
+            sendUpdate(MSG_PROCESSING);
+            VoxtralEngine.EngineResult res = engine.transcribe(samples,
+                    "auto".equals(mLangCode) ? null : mLangCode,
+                    128,
+                    new VoxtralEngine.Listener() {
+                        @Override
+                        public void onUpdate(String message) { sendUpdate(message); }
+                    });
+            WhisperResult result = new WhisperResult(res.text, mLangCode, mAction);
+            sendResult(result);
+            if (res.truncated) sendUpdate(MSG_TRUNCATED);
+            long timeTaken = System.currentTimeMillis() - startTime;
+            Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
+            sendUpdate(MSG_PROCESSING_DONE);
         } catch (Exception e) {
             Log.e(TAG, "Error during transcription", e);
-            sendUpdate("Transcription failed: " + e.getMessage());
+            sendUpdate("Transcription failed: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         } finally {
             mInProgress.set(false);
         }
     }
 
     private void sendUpdate(String message) {
-        if (mUpdateListener != null) {
-            mUpdateListener.onUpdateReceived(message);
-        }
+        WhisperListener l = mUpdateListener;
+        if (l != null) l.onUpdateReceived(message);
     }
 
     private void sendResult(WhisperResult whisperResult) {
-        if (mUpdateListener != null) {
-            mUpdateListener.onResultReceived(whisperResult);
-        }
+        WhisperListener l = mUpdateListener;
+        if (l != null) l.onResultReceived(whisperResult);
     }
-
 }

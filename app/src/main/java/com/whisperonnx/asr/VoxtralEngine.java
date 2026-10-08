@@ -59,8 +59,14 @@ public class VoxtralEngine {
     private long[] promptIds;
 
     public interface Listener {
-        void onUpdate(String message);
-        void onResult(String text, String language);
+        default void onUpdate(String message) {}
+    }
+
+    /** Transcription output with a flag telling whether the token limit cut it off. */
+    public static final class EngineResult {
+        public final String text;
+        public final boolean truncated;
+        public EngineResult(String text, boolean truncated) { this.text = text; this.truncated = truncated; }
     }
 
     public VoxtralEngine(Context context) {
@@ -300,14 +306,14 @@ public class VoxtralEngine {
     // lang -> token ids of " lang:<iso> "
     private static final Map<String, int[]> LANG_IDS = new HashMap<>();
     static {
-        LANG_IDS.put("en", new int[]{4376, 1058, 1262, 1032});
-        LANG_IDS.put("fr", new int[]{4376, 1058, 7064, 1032});
-        LANG_IDS.put("de", new int[]{4376, 1058, 1558, 1032});
-        LANG_IDS.put("es", new int[]{4376, 1058, 1264, 1032});
-        LANG_IDS.put("it", new int[]{4376, 1058, 1276, 1032});
-        LANG_IDS.put("pt", new int[]{4376, 1058, 1515, 1032});
-        LANG_IDS.put("nl", new int[]{4376, 24082, 1108, 1032});
-        LANG_IDS.put("hi", new int[]{4376, 1058, 8101, 1032});
+        LANG_IDS.put("en", new int[]{4376, 1058, 1262});
+        LANG_IDS.put("fr", new int[]{4376, 1058, 7064});
+        LANG_IDS.put("de", new int[]{4376, 1058, 1558});
+        LANG_IDS.put("es", new int[]{4376, 1058, 1264});
+        LANG_IDS.put("it", new int[]{4376, 1058, 1276});
+        LANG_IDS.put("pt", new int[]{4376, 1058, 1515});
+        LANG_IDS.put("nl", new int[]{4376, 24082, 1108});
+        LANG_IDS.put("hi", new int[]{4376, 1058, 8101});
     }
 
     /**
@@ -315,28 +321,24 @@ public class VoxtralEngine {
      * If langCode is "auto" or unsupported, the lang part is omitted.
      */
     public long[] buildPrompt(String langCode) {
+        List<Long> tokens = new ArrayList<>();
+        tokens.add((long) BOS_TOKEN_ID);
+        tokens.add(3L);
+        tokens.add((long) BEGIN_AUDIO_TOKEN_ID);
+        for (int k = 0; k < NUM_AUDIO_TOKENS; k++) tokens.add((long) AUDIO_TOKEN_ID);
         int[] langIds = null;
         if (langCode != null) langIds = LANG_IDS.get(langCode.toLowerCase());
-        int n = 1 + 1 + 1 + NUM_AUDIO_TOKENS + 1 + (langIds != null ? langIds.length + 1 : 0) + 1 + 1;
-        long[] out = new long[n];
-        int i = 0;
-        out[i++] = BOS_TOKEN_ID;      // <s>
-        out[i++] = 3;                 // [INST]
-        out[i++] = BEGIN_AUDIO_TOKEN_ID;
-        for (int k = 0; k < NUM_AUDIO_TOKENS; k++) out[i++] = AUDIO_TOKEN_ID;
-        if (langIds != null) {
-            for (int k = 0; k < langIds.length; k++) out[i++] = langIds[k];
-            out[i++] = 34;            // [TRANSCRIBE]
-        } else {
-            out[i++] = 34;            // [TRANSCRIBE] (no lang: auto-detect)
-        }
-        out[i++] = 4;                 // [/INST]
+        if (langIds != null) for (int id : langIds) tokens.add((long) id);
+        tokens.add(34L);
+        tokens.add(4L);
+        long[] out = new long[tokens.size()];
+        for (int i2 = 0; i2 < out.length; i2++) out[i2] = tokens.get(i2);
         return out;
     }
 
     // ---------- Transcription ----------
 
-    public String transcribe(float[] samples, String langCode, int maxNewTokens, Listener listener) throws Exception {
+    public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, Listener listener) throws Exception {
         if (decoderSession == null) throw new IllegalStateException("Engine not loaded");
 
         long t0 = System.currentTimeMillis();
@@ -386,23 +388,15 @@ public class VoxtralEngine {
         }
         long t3 = System.currentTimeMillis();
 
-        // 4. decoder loop with KV cache (tensors stay OnnxTensors, no Java-array copies)
+        // 4. decoder loop with KV cache
+        // Ownership model: the current OrtSession.Result owns the present.* tensors.
+        // It stays OPEN until the next decoder run has succeeded; only then is the
+        // previous Result closed. Tensors are therefore never used after close.
         List<Long> generated = new ArrayList<>();
         float[][] curEmbeds = embeds2d;
         int curLen = 0;
-        Map<String, OnnxTensor[]> past = null;
-        OnnxTensor[] emptyKeys = new OnnxTensor[NUM_LAYERS];
-        OnnxTensor[] emptyValues = new OnnxTensor[NUM_LAYERS];
+        OrtSession.Result prevResult = null;
         try {
-            long[] emptyShape = {1, KV_HEADS, 0, HEAD_DIM};
-            FloatBuffer empty = FloatBuffer.allocate(0);
-            for (int l = 0; l < NUM_LAYERS; l++) {
-                emptyKeys[l] = OnnxTensor.createTensor(env, empty, emptyShape);
-                emptyValues[l] = OnnxTensor.createTensor(env, empty, emptyShape);
-            }
-            past = new HashMap<>();
-            past.put("key", emptyKeys);
-            past.put("value", emptyValues);
             for (int step = 0; step < maxNewTokens; step++) {
                 int seqLen = curEmbeds.length;
                 long[] attn = new long[curLen + seqLen];
@@ -413,65 +407,56 @@ public class VoxtralEngine {
                 long[] embShape = {1, seqLen, HIDDEN};
                 float[] flatEmb = new float[seqLen * HIDDEN];
                 for (int i = 0; i < seqLen; i++) System.arraycopy(curEmbeds[i], 0, flatEmb, i * HIDDEN, HIDDEN);
-                feeds.put("inputs_embeds", OnnxTensor.createTensor(env, FloatBuffer.wrap(flatEmb), embShape));
-                feeds.put("attention_mask", OnnxTensor.createTensor(env, LongBuffer.wrap(attn), new long[]{1, attn.length}));
-                feeds.put("position_ids", OnnxTensor.createTensor(env, LongBuffer.wrap(posIds), new long[]{1, seqLen}));
-                for (int l = 0; l < NUM_LAYERS; l++) {
-                    feeds.put("past_key_values." + l + ".key", past.get("key")[l]);
-                    feeds.put("past_key_values." + l + ".value", past.get("value")[l]);
-                }
-                long nextId;
-                OnnxTensor[] newKeys = new OnnxTensor[NUM_LAYERS];
-                OnnxTensor[] newValues = new OnnxTensor[NUM_LAYERS];
-                try (OrtSession.Result res = decoderSession.run(feeds)) {
-                    float[][][] logits3 = (float[][][]) res.get(0).getValue();
-                    float[] lastLogits = logits3[0][logits3[0].length - 1];
-                    nextId = argmax(lastLogits);
+                List<OnnxTensor> ownedInputs = new ArrayList<>();
+                ownedInputs.add(OnnxTensor.createTensor(env, FloatBuffer.wrap(flatEmb), embShape));
+                ownedInputs.add(OnnxTensor.createTensor(env, LongBuffer.wrap(attn), new long[]{1, attn.length}));
+                ownedInputs.add(OnnxTensor.createTensor(env, LongBuffer.wrap(posIds), new long[]{1, seqLen}));
+                feeds.put("inputs_embeds", ownedInputs.get(0));
+                feeds.put("attention_mask", ownedInputs.get(1));
+                feeds.put("position_ids", ownedInputs.get(2));
+                boolean hasPast = prevResult != null;
+                if (!hasPast) {
+                    long[] emptyShape = {1, KV_HEADS, 0, HEAD_DIM};
+                    FloatBuffer empty = FloatBuffer.allocate(0);
                     for (int l = 0; l < NUM_LAYERS; l++) {
-                        newKeys[l] = (OnnxTensor) res.get("present." + l + ".key").get();
-                        newValues[l] = (OnnxTensor) res.get("present." + l + ".value").get();
-                    }
-                    // keep references to extracted tensors so they survive the Result close
-                    for (int l = 0; l < NUM_LAYERS; l++) {
-                        newKeys[l].getInfo();
-                        newValues[l].getInfo();
-                    }
-                }
-                // close created input tensors (not the reused past tensors)
-                for (Map.Entry<String, OnnxTensor> e : feeds.entrySet()) {
-                    boolean isPast = false;
-                    for (int l = 0; l < NUM_LAYERS; l++) {
-                        if (e.getValue() == past.get("key")[l] || e.getValue() == past.get("value")[l]) { isPast = true; break; }
-                    }
-                    if (!isPast) e.getValue().close();
-                }
-                if (nextId == EOS_TOKEN_ID) {
-                    for (int l = 0; l < NUM_LAYERS; l++) { newKeys[l].close(); newValues[l].close(); }
-                    break;
-                }
-                generated.add(nextId);
-                curLen += seqLen;
-                if (step > 0) {
-                    for (int l = 0; l < NUM_LAYERS; l++) {
-                        past.get("key")[l].close();
-                        past.get("value")[l].close();
+                        feeds.put("past_key_values." + l + ".key", OnnxTensor.createTensor(env, empty, emptyShape));
+                        feeds.put("past_key_values." + l + ".value", OnnxTensor.createTensor(env, empty, emptyShape));
                     }
                 } else {
                     for (int l = 0; l < NUM_LAYERS; l++) {
-                        emptyKeys[l].close();
-                        emptyValues[l].close();
+                        feeds.put("past_key_values." + l + ".key", (OnnxTensor) prevResult.get("present." + l + ".key").get());
+                        feeds.put("past_key_values." + l + ".value", (OnnxTensor) prevResult.get("present." + l + ".value").get());
                     }
                 }
-                Map<String, OnnxTensor[]> newPast = new HashMap<>();
-                newPast.put("key", newKeys);
-                newPast.put("value", newValues);
-                past = newPast;
+                long nextId;
+                OrtSession.Result res = decoderSession.run(feeds);
+                // created input tensors are no longer needed once run() returned
+                if (!hasPast) {
+                    for (Map.Entry<String, OnnxTensor> e : feeds.entrySet()) {
+                        if (e.getKey().startsWith("past_key_values.")) e.getValue().close();
+                    }
+                }
+                for (OnnxTensor t : ownedInputs) t.close();
+                try {
+                    float[][][] logits3 = (float[][][]) res.get(0).getValue();
+                    float[] lastLogits = logits3[0][logits3[0].length - 1];
+                    nextId = argmax(lastLogits);
+                } catch (Exception e) {
+                    res.close();
+                    throw e;
+                }
+                // new generation succeeded: release the previous one (exactly once)
+                if (prevResult != null) prevResult.close();
+                prevResult = res;
+                if (nextId == EOS_TOKEN_ID) break;
+                generated.add(nextId);
+                curLen += seqLen;
                 float[][] nextEmb1d;
                 try (OnnxTensor t = OnnxTensor.createTensor(env, new long[][]{{nextId}})) {
                     Map<String, OnnxTensor> f = new HashMap<>();
                     f.put("input_ids", t);
-                    try (OrtSession.Result res = embedSession.run(f)) {
-                        float[][][] e = (float[][][]) res.get(0).getValue();
+                    try (OrtSession.Result res2 = embedSession.run(f)) {
+                        float[][][] e = (float[][][]) res2.get(0).getValue();
                         nextEmb1d = e[0];
                     }
                 }
@@ -480,16 +465,14 @@ public class VoxtralEngine {
                     listener.onUpdate("Decoding " + step);
             }
         } finally {
-            if (past != null) {
-                for (int l = 0; l < NUM_LAYERS; l++) {
-                    try { if (past.get("key")[l] != null) past.get("key")[l].close(); } catch (Exception ignored) {}
-                    try { if (past.get("value")[l] != null) past.get("value")[l].close(); } catch (Exception ignored) {}
-                }
+            if (prevResult != null) {
+                try { prevResult.close(); } catch (Exception ignored) {}
             }
         }
         long t4 = System.currentTimeMillis();
         Log.d(TAG, "timings: mel=" + (t1 - t0) + " enc=" + (t2 - t1) + " prompt=" + (t3 - t2) + " decode=" + (t4 - t3) + " tokens=" + generated.size());
-        return decode(generated);
+        boolean truncated = !generated.isEmpty() && generated.size() >= maxNewTokens;
+        return new EngineResult(decode(generated), truncated);
     }
 
     private static long argmax(float[] logits) {

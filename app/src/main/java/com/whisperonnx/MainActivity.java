@@ -116,6 +116,11 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         ThemeUtils.setStatusBarAppearance(this);
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+        if (!com.whisperonnx.asr.Whisper.isModelInstalled(this)) {
+            startActivity(new Intent(this, com.whisperonnx.SetupActivity.class));
+            finish();
+            return;
+        }
         checkInputMethodEnabled();
         processingBar = findViewById(R.id.processing_bar);
         sp = PreferenceManager.getDefaultSharedPreferences(this);
@@ -145,9 +150,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         translate = findViewById(R.id.mode_translate);
+        // Voxtral currently supports transcription only: keep the translate switch off and inert.
+        translate.setChecked(false);
+        translate.setEnabled(false);
         translate.setOnCheckedChangeListener((compoundButton, isChecked) -> {
-            layoutTTS.setVisibility(isChecked ? View.VISIBLE:View.GONE);
-            if (layoutTTS.getVisibility() == View.GONE) modeTTS.setChecked(false);
+            if (isChecked) translate.setChecked(false);
         });
 
 
