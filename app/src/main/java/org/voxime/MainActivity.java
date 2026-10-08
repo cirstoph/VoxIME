@@ -101,6 +101,10 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(final MenuItem item) {
         int id = item.getItemId();
+        if (id == R.id.menu_copy_log) {
+            copyLogToClipboard();
+            return true;
+        }
         if (id == R.id.menu_share_log) {
             shareLogFile();
             return true;
@@ -279,6 +283,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // Model initialization
+    private void copyLogToClipboard() {
+        File logFile = org.voxime.utils.AppLog.getLogFile(this);
+        if (logFile == null || !logFile.isFile()) {
+            Toast.makeText(this, "No log file yet", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(logFile.toPath());
+            String text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("VoxIME log", text));
+            Toast.makeText(this, "Log copied (" + text.length() / 1024 + " kB)", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not copy log: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void shareLogFile() {
         File logFile = org.voxime.utils.AppLog.getLogFile(this);
         if (logFile == null || !logFile.isFile()) {

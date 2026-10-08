@@ -29,6 +29,7 @@
     <string name="tts_initialization_failed">TTS: Initialization failed</string>
     <string name="auto_button">automatic mode</string>
     <string name="error_no_input">No voice input received</string>
+    <string name="menu_copy_log">Copy log</string>
     <string name="menu_share_log">Share log</string>
     <string name="download_voxtral">Download Voxtral model (~2.7 GB)</string>
     <string name="download_voxtral_success">Voxtral model downloaded successfully</string>
