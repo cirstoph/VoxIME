@@ -76,7 +76,7 @@ public class VoximeInputMethodService extends InputMethodService {
     public void onStartInput(EditorInfo attribute, boolean restarting) {
         if (attribute.inputType ==  EditorInfo.TYPE_NULL) {
             Log.d(TAG, "Cancelling: onStartInput: inputType=" + attribute.inputType + ", package=" + attribute.packageName + ", fieldId=" + attribute.fieldId);
-            deinitModel();
+            // keep the engine resident; unloading costs 10-100s of reload time.
             if (mRecorder != null && mRecorder.isInProgress()) {
                 mRecorder.stop();
             }
