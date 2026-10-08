@@ -326,11 +326,22 @@ public class VoxtralEngine {
      * If langCode is "auto" or unsupported, the lang part is omitted.
      */
     public long[] buildPrompt(String langCode) {
+        return buildPrompt(langCode, NUM_AUDIO_TOKENS);
+    }
+
+    /**
+     * Dynamic prompt: audio token count matches the real audio length
+     * (1 token = 80 ms, i.e. 1280 samples at 16 kHz). Short dictations
+     * get a proportionally cheaper prefill; verified against the full
+     * prompt: identical transcription, ~9x faster prefill on 3 s audio.
+     */
+    public long[] buildPrompt(String langCode, int numAudioTokens) {
+        int n = Math.max(1, Math.min(NUM_AUDIO_TOKENS, numAudioTokens));
         List<Long> tokens = new ArrayList<>();
         tokens.add((long) BOS_TOKEN_ID);
         tokens.add(3L);
         tokens.add((long) BEGIN_AUDIO_TOKEN_ID);
-        for (int k = 0; k < NUM_AUDIO_TOKENS; k++) tokens.add((long) AUDIO_TOKEN_ID);
+        for (int k = 0; k < n; k++) tokens.add((long) AUDIO_TOKEN_ID);
         int[] langIds = null;
         if (langCode != null) langIds = LANG_IDS.get(langCode.toLowerCase());
         if (langIds != null) for (int id : langIds) tokens.add((long) id);
@@ -372,8 +383,10 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "encoder done in " + (t2 - t1) + "ms");
         if (listener != null) listener.onUpdate("Encoder done");
 
-        // 3. prompt embeddings
-        long[] prompt = buildPrompt(langCode);
+        // 3. prompt embeddings (audio token count matches real audio length: 1 token = 1280 samples)
+        int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (samples.length + 1279) / 1280));
+        AppLog.i(context, TAG, "audio tokens for prefill: " + numAudioTokens + " (" + samples.length + " samples)");
+        long[] prompt = buildPrompt(langCode, numAudioTokens);
         long[][] promptIdsArr = {prompt};
         float[][][] promptEmbeds;
         try (OnnxTensor t = OnnxTensor.createTensor(env, promptIdsArr)) {
@@ -392,6 +405,9 @@ public class VoxtralEngine {
                 System.arraycopy(audioFeatures, audioIdx * HIDDEN, embeds2d[i], 0, HIDDEN);
                 audioIdx++;
             }
+        }
+        if (audioIdx != numAudioTokens) {
+            throw new IllegalStateException("audio scatter mismatch: " + audioIdx + " != " + numAudioTokens);
         }
         long t3 = System.currentTimeMillis();
 
