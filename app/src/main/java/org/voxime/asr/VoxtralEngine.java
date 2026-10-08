@@ -79,16 +79,19 @@ public class VoxtralEngine {
         File dir = context.getExternalFilesDir(null);
         env = OrtEnvironment.getEnvironment();
 
+        int cores = Runtime.getRuntime().availableProcessors();
+        int threads = Math.max(4, cores - 1);
+        AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
-        enc.setIntraOpNumThreads(2);
+        enc.setIntraOpNumThreads(threads);
         encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
-        emb.setIntraOpNumThreads(1);
+        emb.setIntraOpNumThreads(2);
         embedSession = env.createSession(new File(dir, "embed_tokens_q4.onnx").getAbsolutePath(), emb);
 
         OrtSession.SessionOptions dec = new OrtSession.SessionOptions();
-        dec.setIntraOpNumThreads(4);
+        dec.setIntraOpNumThreads(threads);
         decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
 
         loadVocab();
@@ -346,8 +349,9 @@ public class VoxtralEngine {
         long t0 = System.currentTimeMillis();
         // 1. mel
         float[][] mel = melSpectrogram(samples);
-        if (listener != null) listener.onUpdate("Mel done");
         long t1 = System.currentTimeMillis();
+        AppLog.i(context, TAG, "mel done in " + (t1 - t0) + "ms");
+        if (listener != null) listener.onUpdate("Mel done");
 
         // 2. encoder
         long[] melShape = {1, 128, 3000};
@@ -364,8 +368,9 @@ public class VoxtralEngine {
                     System.arraycopy(feats[i], 0, audioFeatures, i * feats[0].length, feats[0].length);
             }
         }
-        if (listener != null) listener.onUpdate("Encoder done");
         long t2 = System.currentTimeMillis();
+        AppLog.i(context, TAG, "encoder done in " + (t2 - t1) + "ms");
+        if (listener != null) listener.onUpdate("Encoder done");
 
         // 3. prompt embeddings
         long[] prompt = buildPrompt(langCode);
@@ -390,6 +395,7 @@ public class VoxtralEngine {
         }
         long t3 = System.currentTimeMillis();
 
+        AppLog.i(context, TAG, "prompt embeddings ready in " + (t3 - t2) + "ms, prompt len=" + prompt.length + ", audio positions=" + audioIdx);
         // 4. decoder loop with KV cache
         // Ownership model: the current OrtSession.Result owns the present.* tensors.
         // It stays OPEN until the next decoder run has succeeded; only then is the
@@ -431,6 +437,8 @@ public class VoxtralEngine {
                     }
                 }
                 long nextId;
+                if (step < 3 || step % 8 == 0)
+                    AppLog.i(context, TAG, "decoder run " + step + " starting (seqLen=" + seqLen + ")");
                 OrtSession.Result res = decoderSession.run(feeds);
                 // created input tensors are no longer needed once run() returned
                 if (!hasPast) {
@@ -465,8 +473,8 @@ public class VoxtralEngine {
                 curEmbeds = nextEmb1d;
                 if (listener != null && step % 8 == 0)
                     listener.onUpdate("Decoding " + step);
-                if (step % 16 == 0)
-                    AppLog.i(context, TAG, "decode step " + step + ", curLen=" + curLen);
+                if (step < 8 || step % 8 == 0)
+                    AppLog.i(context, TAG, "decode step " + step + " done, nextId=" + nextId + ", curLen=" + curLen + ", elapsed=" + (System.currentTimeMillis() - t3) + "ms");
             }
         } finally {
             if (prevResult != null) {
