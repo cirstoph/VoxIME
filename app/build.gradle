@@ -15,8 +15,8 @@ android {
         applicationId "org.voxime"
         minSdk 28
         targetSdk 35
-        versionCode 3
-        versionName "0.2.0"
+        versionCode 4
+        versionName "0.2.1"
 
     }
 
@@ -78,7 +78,7 @@ dependencies {
     implementation 'com.github.houbb:opencc4j:1.8.1'
 
     //ONNX Runtime
-    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.19.0'  //latest.release
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.22.0'  //latest.release
     implementation 'com.microsoft.onnxruntime:onnxruntime-extensions-android:0.12.4'   //latest.release
     implementation 'com.github.woheller69:FreeDroidWarn:+'
 

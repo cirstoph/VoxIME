@@ -2,6 +2,10 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
+        android:id="@+id/menu_copy_log"
+        android:orderInCategory="60"
+        android:title="@string/menu_copy_log" />
+    <item
         android:id="@+id/menu_share_log"
         android:orderInCategory="70"
         android:title="@string/menu_share_log" />
