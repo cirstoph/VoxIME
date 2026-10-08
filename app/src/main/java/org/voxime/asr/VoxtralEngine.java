@@ -81,9 +81,17 @@ public class VoxtralEngine {
 
         int cores = Runtime.getRuntime().availableProcessors();
         int threads = Math.max(4, cores - 1);
-        AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
+        // encoder benchmark (x86 + Pixel 6): 4 threads optimal, more = oversubscription
+        int encThreads = Math.min(4, threads);
+        AppLog.i(context, TAG, "using " + threads + " decoder threads, " + encThreads + " encoder threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
-        enc.setIntraOpNumThreads(threads);
+        enc.setIntraOpNumThreads(encThreads);
+        try {
+            enc.addConfigEntry("session.xnnpack.enable", "1");
+            AppLog.i(context, TAG, "XNNPACK enabled for encoder session");
+        } catch (Exception e) {
+            AppLog.w(context, TAG, "XNNPACK not available for encoder, using CPU: " + e.getMessage());
+        }
         encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
@@ -419,6 +427,7 @@ public class VoxtralEngine {
         List<Long> generated = new ArrayList<>();
         float[][] curEmbeds = embeds2d;
         int curLen = 0;
+        int repeatStreak = 0;
         OrtSession.Result prevResult = null;
         try {
             for (int step = 0; step < maxNewTokens; step++) {
@@ -475,6 +484,21 @@ public class VoxtralEngine {
                 if (prevResult != null) prevResult.close();
                 prevResult = res;
                 if (nextId == EOS_TOKEN_ID) break;
+                // repetition guard: a stuck loop (same token over and over) wastes
+                // minutes of compute; treat 6 consecutive identical tokens as stop
+                if (!generated.isEmpty()) {
+                    int last = generated.get(generated.size() - 1).intValue();
+                    if (nextId == last) {
+                        repeatStreak++;
+                        if (repeatStreak >= 6) {
+                            AppLog.w(context, TAG, "repetition guard triggered at step " + step + " (token " + nextId + ")");
+                            generated.add(nextId);
+                            break;
+                        }
+                    } else {
+                        repeatStreak = 0;
+                    }
+                }
                 generated.add(nextId);
                 curLen += seqLen;
                 float[][] nextEmb1d;

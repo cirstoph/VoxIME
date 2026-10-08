@@ -119,7 +119,6 @@ public class VoximeRecognitionService extends RecognitionService {
     protected void onCancel(Callback callback) {
         Log.d(TAG,"cancel");
         stopRecording();
-        deinitModel();
         recognitionCancelled = true;
     }
 
@@ -154,7 +153,6 @@ public class VoximeRecognitionService extends RecognitionService {
                 finished = true;
                 try {
                     callback.endOfSpeech();
-                    deinitModel();
                     Bundle results = new Bundle();
                     ArrayList<String> resultList = new ArrayList<>();
                     String result = whisperResult.getResult();
@@ -168,6 +166,7 @@ public class VoximeRecognitionService extends RecognitionService {
                 } catch (RemoteException e) {
                     Log.e(TAG, "results() failed", e);
                 }
+                // keep the engine loaded for the next request (loading takes ~10-100s)
             }
         });
     }
@@ -180,7 +179,6 @@ public class VoximeRecognitionService extends RecognitionService {
         } catch (RemoteException e) {
             Log.e(TAG, "error() failed", e);
         }
-        deinitModel();
     }
 
     private void startRecording() {
