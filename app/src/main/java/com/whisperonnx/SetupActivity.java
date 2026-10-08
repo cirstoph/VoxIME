@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
 
+import com.whisperonnx.asr.ModelFiles;
 import com.whisperonnx.utils.ThemeUtils;
 
 import java.io.File;
@@ -29,6 +30,8 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -113,21 +116,52 @@ public class SetupActivity extends AppCompatActivity {
     private void downloadOne(String name, File dir) throws Exception {
         File out = new File(dir, name);
         File part = new File(dir, name + ".part");
+        // skip files that are already complete and valid
+        if (out.isFile() && out.length() == ModelFiles.expectedSize(name)) {
+            runOnUiThread(() -> extractedFileTV.setText(name + " (ok)"));
+            return;
+        }
+        long expected = ModelFiles.expectedSize(name);
+        long downloaded = part.isFile() ? part.length() : 0;
         URL url = new URL(VOXTRAL_BASE + name);
-        long downloaded = part.exists() ? part.length() : 0;
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        if (downloaded > 0) conn.setRequestProperty("Range", "bytes=" + downloaded + "-");
+        boolean resume = false;
+        if (downloaded > 0) {
+            conn.setRequestProperty("Range", "bytes=" + downloaded + "-");
+            resume = true;
+        }
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(30000);
         int code = conn.getResponseCode();
-        if (code != 200 && code != 206) throw new Exception("HTTP " + code + " for " + name);
+        if (resume) {
+            if (code != 206) {
+                // server ignored the range: restart from scratch
+                conn.disconnect();
+                if (part.isFile()) part.delete();
+                conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(30000);
+                code = conn.getResponseCode();
+                downloaded = 0;
+            }
+        }
+        if (code != 200 && code != 206) {
+            conn.disconnect();
+            throw new Exception("HTTP " + code + " for " + name);
+        }
         long total = conn.getContentLengthLong() + downloaded;
+        if (total != expected) {
+            conn.disconnect();
+            if (part.isFile()) part.delete();
+            throw new Exception("Size mismatch for " + name + ": expected " + expected + ", got " + total);
+        }
         final String shownName = name;
         runOnUiThread(() -> {
             extractedFileTV.setVisibility(View.VISIBLE);
             extractedFileTV.setText(shownName);
         });
-        try (InputStream in = conn.getInputStream(); OutputStream os = Files.newOutputStream(part.toPath(), StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
+        try (InputStream in = conn.getInputStream();
+             OutputStream os = Files.newOutputStream(part.toPath(), StandardOpenOption.APPEND, StandardOpenOption.CREATE)) {
             byte[] buf = new byte[65536];
             int n;
             long lastUi = 0;
@@ -135,7 +169,7 @@ public class SetupActivity extends AppCompatActivity {
                 os.write(buf, 0, n);
                 downloaded += n;
                 long now = System.currentTimeMillis();
-                if (now - lastUi > 250 && total > 0) {
+                if (now - lastUi > 250) {
                     lastUi = now;
                     final int prog = (int) (downloaded * 100 / total);
                     final long done = downloaded, tot = total;
@@ -145,8 +179,14 @@ public class SetupActivity extends AppCompatActivity {
                     });
                 }
             }
+        } finally {
+            conn.disconnect();
         }
-        if (out.exists()) out.delete();
+        if (downloaded != expected) {
+            throw new Exception("Incomplete download of " + name + ": " + downloaded + "/" + expected);
+        }
+        // atomic-ish activation: only replace after size validated
+        if (out.isFile()) out.delete();
         if (!part.renameTo(out)) throw new Exception("rename failed: " + name);
     }
     public void installModel(View v){
@@ -166,39 +206,82 @@ public class SetupActivity extends AppCompatActivity {
         progressBar.setVisibility(View.VISIBLE);
         progressBar.setIndeterminate(true);
         Thread thread = new Thread(() -> {
-            ZipEntry zipEntry;
-            int readLen;
-            byte[] readBuffer = new byte[4096];
             try {
-                InputStream src = context.getContentResolver().openInputStream(zipFile);
-                try {
-                    try (ZipInputStream zipInputStream = new ZipInputStream(src)) {
-                        while ((zipEntry = zipInputStream.getNextEntry()) != null) {
-                            File extractedFile = new File(targetDir ,zipEntry.getName());
-                            runOnUiThread(()->{
-                                extractedFileTV.setVisibility(View.VISIBLE);
-                                extractedFileTV.setText(extractedFile.getName());
-                            });
-                            try (OutputStream outputStream = Files.newOutputStream(extractedFile.toPath())) {
-                                while ((readLen = zipInputStream.read(readBuffer)) != -1) {
-                                    outputStream.write(readBuffer, 0, readLen);
-                                }
-                            }
-                        }
-                        runOnUiThread(()->{
-                            progressBar.setIndeterminate(false);
-                            progressBar.setVisibility(View.GONE);
-                            extractedFileTV.setVisibility(View.GONE);
-                            startButton.setVisibility(View.VISIBLE);
-                        });
-                    }
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
-                }
-            } catch (FileNotFoundException e) {
-                e.printStackTrace();
+                extractZipSafe(context, targetDir, zipFile);
+                runOnUiThread(() -> {
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    extractedFileTV.setVisibility(View.VISIBLE);
+                    extractedFileTV.setText(getString(getResources().getIdentifier("download_voxtral_success", "string", getPackageName())));
+                    startButton.setVisibility(View.VISIBLE);
+                });
+            } catch (final Exception e) {
+                Log.e("SetupActivity", "ZIP import failed", e);
+                runOnUiThread(() -> {
+                    progressBar.setIndeterminate(false);
+                    progressBar.setVisibility(View.GONE);
+                    Toast.makeText(this, getString(getResources().getIdentifier("download_voxtral_failed", "string", getPackageName())) + ": " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
             }
         });
         thread.start();
+    }
+
+    /**
+     * Hardened ZIP import: only the seven expected flat file names are accepted,
+     * each entry is validated by size, nothing is written outside the model dir.
+     */
+    private void extractZipSafe(Context context, File targetDir, Uri zipFile) throws Exception {
+        if (targetDir == null) throw new Exception("storage unavailable");
+        String canonicalBase = targetDir.getCanonicalPath() + File.separator;
+        long totalLimit = ModelFiles.totalSize() * 2;
+        long writtenTotal = 0;
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        try (InputStream src = context.getContentResolver().openInputStream(zipFile);
+             ZipInputStream zis = new ZipInputStream(src)) {
+            ZipEntry entry;
+            byte[] buf = new byte[65536];
+            while ((entry = zis.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (entry.isDirectory()) throw new Exception("unexpected directory in zip: " + name);
+                if (name.contains("/") || name.contains("\\") || !ModelFiles.isExpectedName(name)) {
+                    throw new Exception("unexpected file in zip: " + name);
+                }
+                File outFile = new File(targetDir, name);
+                if (!outFile.getCanonicalPath().startsWith(canonicalBase)) {
+                    throw new Exception("path traversal blocked: " + name);
+                }
+                File partFile = new File(targetDir, name + ".tmp");
+                long expected = ModelFiles.expectedSize(name);
+                long written = 0;
+                try (OutputStream os = Files.newOutputStream(partFile.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    int n;
+                    while ((n = zis.read(buf)) != -1) {
+                        written += n;
+                        writtenTotal += n;
+                        if (written > expected || writtenTotal > totalLimit) {
+                            throw new Exception("zip too large: " + name);
+                        }
+                        os.write(buf, 0, n);
+                    }
+                }
+                if (written != expected) {
+                    partFile.delete();
+                    throw new Exception("size mismatch for " + name + ": " + written + "/" + expected);
+                }
+                if (outFile.isFile()) outFile.delete();
+                if (!partFile.renameTo(outFile)) throw new Exception("rename failed: " + name);
+                seen.add(name);
+                final String shown = name;
+                runOnUiThread(() -> extractedFileTV.setText(shown));
+            }
+        }
+        List<String> missing = new ArrayList<>();
+        for (ModelFiles.Entry e : ModelFiles.REQUIRED) {
+            if (!seen.contains(e.name)) missing.add(e.name);
+        }
+        if (!missing.isEmpty()) {
+            throw new Exception("zip is missing: " + android.text.TextUtils.join(", ", missing));
+        }
     }
 }

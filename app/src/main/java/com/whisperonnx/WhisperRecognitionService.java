@@ -136,34 +136,49 @@ public class WhisperRecognitionService extends RecognitionService {
         mWhisper.setLanguage(langCode);
         Log.d(TAG, "Language token " + langCode);
         mWhisper.setListener(new Whisper.WhisperListener() {
+            private boolean finished = false;
             @Override
-            public void onUpdateReceived(String message) { }
-
+            public void onUpdateReceived(String message) {
+                if (message == null) return;
+                if (message.startsWith("Transcription failed")) {
+                    finishWithError(callback, message);
+                } else if (message.equals("Engine not initialized or file path not set")
+                        || message.equals("Engine still loading") || message.equals("Engine not ready")) {
+                    finishWithError(callback, "VoxIME engine not ready");
+                }
+            }
             @Override
             public void onResultReceived(WhisperResult whisperResult) {
-                if (whisperResult.getResult().trim().length() > 0){
-                    Log.d(TAG, whisperResult.getResult().trim());
-                    try {
-                        callback.endOfSpeech();
-                        deinitModel();
-                        Bundle results = new Bundle();
-                        ArrayList<String> resultList = new ArrayList<>();
-
-                        String result = whisperResult.getResult();
-                        if (whisperResult.getLanguage().equals("zh")){
-                            boolean simpleChinese = sp.getBoolean("RecognitionServiceSimpleChinese",false);
-                            result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
-                        }
-
-                        resultList.add(result.trim());
-                        results.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, resultList);
-                        callback.results(results);
-                    } catch (RemoteException e) {
-                        throw new RuntimeException(e);
+                if (finished) return;
+                finished = true;
+                try {
+                    callback.endOfSpeech();
+                    deinitModel();
+                    Bundle results = new Bundle();
+                    ArrayList<String> resultList = new ArrayList<>();
+                    String result = whisperResult.getResult();
+                    if (whisperResult.getLanguage().equals("zh")){
+                        boolean simpleChinese = sp.getBoolean("RecognitionServiceSimpleChinese",false);
+                        result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                     }
+                    resultList.add(result.trim());
+                    results.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, resultList);
+                    callback.results(results);
+                } catch (RemoteException e) {
+                    Log.e(TAG, "results() failed", e);
                 }
             }
         });
+    }
+
+    private void finishWithError(Callback callback, String message) {
+        Log.e(TAG, "RecognitionService error: " + message);
+        try {
+            callback.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY);
+        } catch (RemoteException e) {
+            Log.e(TAG, "error() failed", e);
+        }
+        deinitModel();
     }
 
     private void startRecording() {
