@@ -26,7 +26,7 @@ Beim ersten Start der App:
 - Die Erkennung eines kurzen Diktats (5–15 s Audio) dauert je nach Gerät einige Sekunden.
 - Für die Nutzung als Spracheingabe-Dienst (nicht IME): App in *System > Sprachen > Spracheingabe* aktivieren. Falls die App dort nicht erscheint:
   - USB-Debugging aktivieren
-  - `adb shell settings put secure voice_recognition_service org.voxime/com.whisperonnx.WhisperRecognitionService`
+  - `adb shell settings put secure voice_recognition_service org.voxime/org.voxime.VoximeRecognitionService`
 
 ## Fehlerdiagnose: Log teilen
 
@@ -52,11 +52,29 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.3) als Build-Artefakt unter [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) (Artifacts → „VoxIME-debug“; arm64-v8a, minSdk 28). Die alte `apks/VoxIME-0.5.2.apk` wurde entfernt – ihr Build enthielt den „Engine not loaded“-Bug.
+Aktuelle APK (0.5.3) als Build-Artefakt unter [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) (Artifacts → „VoxIME-debug“; arm64-v8a, minSdk 28). Jeder grüne CI-Lauf liefert eine frisch gebaute APK; feste Release-APKs liegen nicht mehr im Repo.
 
-**Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate") wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
+**Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
-**Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren.
+## Changelog
+
+### 0.5.3 (2026-10-09)
+- **Bugfix:** `VoxtralEngine.loadModel()` erzeugte die drei ONNX-Sessions nicht mehr (in 0.5.2 beim Einfügen der Lade-Fortschrittsanzeige versehentlich entfernt) — jede Transkription crashte mit `IllegalStateException: Engine not loaded`. Die Aufrufe sind wiederhergestellt, jetzt mit Fortschrittsmeldung pro Schritt (Encoder 384 MB → Embeddings 252 MB → Decoder 2,3 GB).
+- **CI:** GitHub Actions baut bei jedem Push/PR automatisch den Debug-APK ([Actions → Android CI](https://github.com/cirstoph/VoxIME/actions)) und lädt ihn als Artefakt hoch; außerdem ergänzt: das fehlende `gradlew`-Startskript, ohne das frische Clones nicht bauen konnten.
+- **Aufräumen:** tote Felder aus der Whisper-Ära entfernt (`textPromptCache`, `langTokens`, `promptIds`), Worker-Thread in `voxime-worker` umbenannt, `RecordBuffer.getSamples()` wirft keine NPE mehr bei leerem Puffer, falscher RecognitionService-Paketname in der README korrigiert.
+- Die kaputte Release-APK `apks/VoxIME-0.5.2.apk` wurde aus dem Repo entfernt.
+
+### 0.5.2 (2026-10-09)
+- Lade-Fortschrittsanzeige im UI — **enthielt aber den Session-Bug, siehe 0.5.3.**
+
+### 0.5.1 (2026-10-09)
+- XNNPACK-Experiment und Encoder-Thread-Cap reverted (beides auf dem Gerät langsamer, siehe Commit 2495720).
+
+### 0.5.0 (2026-10-09)
+- Halluzinations-Schleifen behoben: 0,64 s Stille nach der Sprache im Prompt („Silence Margin“), Wiederholungs-Guard im Decoder (Abbruch nach 6 identischen Tokens), dynamischer Prefill (Audio-Token-Anzahl passt zur echten Audiobänge, ~9× schnellerer Prefill bei kurzen Diktaten).
+
+### 0.2.1 / früher
+- ONNX Runtime 1.19 → 1.22 (behebt `GatherBlockQuantized is not a registered op` beim Laden von `embed_tokens_q4.onnx`), Whisper-Reste entfernt, Umbenennung auf `org.voxime`, Datei-Logging (`voxime.log`), In-App-Modell-Download.
 
 ## Lizenz & Credits
 
