@@ -329,6 +329,16 @@ public class MainActivity extends AppCompatActivity {
                 if (message.equals(Voxime.MSG_PROCESSING)) {
                     runOnUiThread(() -> tvStatus.setText(getString(R.string.processing)));
                     startTime = System.currentTimeMillis();
+                } else if (message.equals(Voxime.MSG_LOADING) || message.startsWith("Loading ") || message.endsWith("loaded in") || message.equals(Voxime.MSG_LOAD_READY)) {
+                    runOnUiThread(() -> {
+                        processingBar.setIndeterminate(true);
+                        tvStatus.setText(message);
+                    });
+                } else if (message.startsWith("Model failed to load")) {
+                    runOnUiThread(() -> {
+                        processingBar.setIndeterminate(false);
+                        tvStatus.setText(message);
+                    });
                 }
             }
 

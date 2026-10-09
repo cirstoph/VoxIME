@@ -63,6 +63,20 @@ public class VoxtralEngine {
         default void onUpdate(String message) {}
     }
 
+    /** Reports model-loading progress to the UI (called from the loader thread). */
+    public interface LoadProgressListener {
+        void onProgress(String message);
+    }
+
+    private volatile LoadProgressListener loadProgressListener;
+    public void setLoadProgressListener(LoadProgressListener l) { this.loadProgressListener = l; }
+    private void loadProgress(String message) {
+        AppLog.i(context, TAG, message);
+        LoadProgressListener l = loadProgressListener;
+        if (l != null) l.onProgress(message);
+    }
+
+
     /** Transcription output with a flag telling whether the token limit cut it off. */
     public static final class EngineResult {
         public final String text;
@@ -84,16 +98,20 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
         enc.setIntraOpNumThreads(threads);
-        encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
+
+
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
         emb.setIntraOpNumThreads(2);
-        embedSession = env.createSession(new File(dir, "embed_tokens_q4.onnx").getAbsolutePath(), emb);
+
+
 
         OrtSession.SessionOptions dec = new OrtSession.SessionOptions();
         dec.setIntraOpNumThreads(threads);
-        decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
 
+
+
+        loadProgress("Loading vocabulary...");
         loadVocab();
         AppLog.i(context, TAG, "engine loaded (3 sessions + vocab)");
         Log.d(TAG, "Voxtral engine loaded");
