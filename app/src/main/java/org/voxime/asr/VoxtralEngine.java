@@ -365,9 +365,20 @@ public class VoxtralEngine {
     public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, Listener listener) throws Exception {
         if (decoderSession == null) throw new IllegalStateException("Engine not loaded");
 
+        // Silence margin: 8 tokens (0.64 s) of real silence appended so the model
+        // sees the speech end followed by silence - the training-time chunk
+        // distribution. Without it, German dictations with lang=auto could run
+        // into hallucination loops (device log 2026-10-09 run 1); the full-375
+        // prompt masked this because it always carried ~25 s of silence tokens.
+        int silenceMarginSamples = 8 * 1280;
+        float[] padded = samples;
+        if (samples.length + silenceMarginSamples < 480000) {
+            padded = new float[samples.length + silenceMarginSamples];
+            System.arraycopy(samples, 0, padded, 0, samples.length);
+        }
         long t0 = System.currentTimeMillis();
         // 1. mel
-        float[][] mel = melSpectrogram(samples);
+        float[][] mel = melSpectrogram(padded);
         long t1 = System.currentTimeMillis();
         AppLog.i(context, TAG, "mel done in " + (t1 - t0) + "ms");
         if (listener != null) listener.onUpdate("Mel done");
@@ -391,9 +402,8 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "encoder done in " + (t2 - t1) + "ms");
         if (listener != null) listener.onUpdate("Encoder done");
 
-        // 3. prompt embeddings (audio token count matches real audio length: 1 token = 1280 samples)
-        int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (samples.length + 1279) / 1280));
-        AppLog.i(context, TAG, "audio tokens for prefill: " + numAudioTokens + " (" + samples.length + " samples)");
+        int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (padded.length + 1279) / 1280));
+        AppLog.i(context, TAG, "audio tokens for prefill: " + numAudioTokens + " (" + samples.length + " samples + silence margin)");
         long[] prompt = buildPrompt(langCode, numAudioTokens);
         long[][] promptIdsArr = {prompt};
         float[][][] promptEmbeds;
