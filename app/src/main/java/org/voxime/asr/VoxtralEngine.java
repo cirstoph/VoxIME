@@ -81,17 +81,9 @@ public class VoxtralEngine {
 
         int cores = Runtime.getRuntime().availableProcessors();
         int threads = Math.max(4, cores - 1);
-        // encoder benchmark (x86 + Pixel 6): 4 threads optimal, more = oversubscription
-        int encThreads = Math.min(4, threads);
-        AppLog.i(context, TAG, "using " + threads + " decoder threads, " + encThreads + " encoder threads (" + cores + " cores)");
+        AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
-        enc.setIntraOpNumThreads(encThreads);
-        try {
-            enc.addConfigEntry("session.xnnpack.enable", "1");
-            AppLog.i(context, TAG, "XNNPACK enabled for encoder session");
-        } catch (Exception e) {
-            AppLog.w(context, TAG, "XNNPACK not available for encoder, using CPU: " + e.getMessage());
-        }
+        enc.setIntraOpNumThreads(threads);
         encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
