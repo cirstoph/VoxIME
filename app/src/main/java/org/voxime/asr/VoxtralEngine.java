@@ -54,10 +54,6 @@ public class VoxtralEngine {
 
     private final Map<String, Integer> vocab = new HashMap<>();      // token string -> id
     private final List<String> idToToken = new ArrayList<>();       // id -> token string (byte-level)
-    private final Map<String, long[]> textPromptCache = new HashMap<>();
-    private final Map<String, String> langTokens = new HashMap<>(); // "en" -> " lang:en "
-
-    private long[] promptIds;
 
     public interface Listener {
         default void onUpdate(String message) {}
@@ -98,18 +94,24 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
         enc.setIntraOpNumThreads(threads);
-
-
+        loadProgress("Loading encoder (384 MB)...");
+        long t = System.currentTimeMillis();
+        encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
+        loadProgress("Encoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
         emb.setIntraOpNumThreads(2);
-
-
+        loadProgress("Loading token embeddings (252 MB)...");
+        t = System.currentTimeMillis();
+        embedSession = env.createSession(new File(dir, "embed_tokens_q4.onnx").getAbsolutePath(), emb);
+        loadProgress("Embeddings loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
 
         OrtSession.SessionOptions dec = new OrtSession.SessionOptions();
         dec.setIntraOpNumThreads(threads);
-
-
+        loadProgress("Loading decoder (2.3 GB) - this takes a while...");
+        t = System.currentTimeMillis();
+        decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
+        loadProgress("Decoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
 
         loadProgress("Loading vocabulary...");
         loadVocab();

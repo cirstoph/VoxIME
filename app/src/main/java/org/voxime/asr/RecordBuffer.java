@@ -18,9 +18,10 @@ public class RecordBuffer {
     }
 
     public static float[] getSamples() {
-
-        int numSamples = RecordBuffer.getOutputBuffer().length / 2;
-        ByteBuffer byteBuffer = ByteBuffer.wrap(RecordBuffer.getOutputBuffer());
+        byte[] buffer = getOutputBuffer();
+        if (buffer == null) return null;
+        int numSamples = buffer.length / 2;
+        ByteBuffer byteBuffer = ByteBuffer.wrap(buffer);
         byteBuffer.order(ByteOrder.nativeOrder());
 
         // Convert audio data to PCM_FLOAT format
