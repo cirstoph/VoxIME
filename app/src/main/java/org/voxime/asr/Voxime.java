@@ -129,7 +129,7 @@ public class Voxime {
         } finally {
             taskLock.unlock();
         }
-        mWorkerThread = new Thread(this::processRecordBufferLoop, "whisper-worker");
+        mWorkerThread = new Thread(this::processRecordBufferLoop, "voxime-worker");
         mWorkerThread.start();
     }
 
