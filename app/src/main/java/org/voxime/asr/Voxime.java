@@ -31,6 +31,9 @@ public class Voxime {
     public static final String MSG_PROCESSING_DONE = "Processing done...!";
     /** Signals that the dictation was cut off at the token limit (not a complete result). */
     public static final String MSG_TRUNCATED = "Result truncated: token limit reached";
+    /** Emitted when model loading starts, followed by per-step MSG_LOAD_STEP_* messages. */
+    public static final String MSG_LOADING = "Loading model...";
+    public static final String MSG_LOAD_READY = "Model ready";
 
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
     private final Lock taskLock = new ReentrantLock(true);
@@ -88,9 +91,11 @@ public class Voxime {
             return;
         }
         mState = ModelState.LOADING;
+        sendUpdate(MSG_LOADING);
         startWorkerIfNeeded();
         mLoaderThread = new Thread(() -> {
             VoxtralEngine engine = new VoxtralEngine(mContext);
+            engine.setLoadProgressListener(message -> sendUpdate(message));
             try {
                 engine.loadModel();
                 if (shutdown) {
@@ -100,6 +105,7 @@ public class Voxime {
                 mVoxtralEngine = engine;
                 mState = ModelState.READY;
                 mStateError = null;
+                sendUpdate(MSG_LOAD_READY);
                 AppLog.i(mContext, TAG, "state -> READY");
                 Log.d(TAG, "Voxtral engine initialized");
             } catch (Exception e) {
@@ -107,6 +113,7 @@ public class Voxime {
                 mVoxtralEngine = null;
                 mState = ModelState.ERROR;
                 mStateError = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                sendUpdate("Model failed to load: " + mStateError);
                 AppLog.e(mContext, TAG, "Voxtral init error: " + mStateError, e);
                 Log.e(TAG, "Voxtral init error", e);
             }
