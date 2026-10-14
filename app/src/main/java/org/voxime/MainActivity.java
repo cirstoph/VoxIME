@@ -319,7 +319,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void initModel() {
-        mVoxime = new Voxime(this);
+        mVoxime = Voxime.getShared(this, "main-activity");
         mVoxime.loadModel();
         mVoxime.setListener(new Voxime.VoximeListener() {
             @Override
@@ -363,9 +363,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void deinitModel() {
-        if (mVoxime != null) {
-            mVoxime.unloadModel();
-            mVoxime = null;
+        Voxime.releaseShared("main-activity");
+        mVoxime = null;
+        if (mRecorder != null) {
+            mRecorder.shutdown();
+            mRecorder = null;
         }
     }
 

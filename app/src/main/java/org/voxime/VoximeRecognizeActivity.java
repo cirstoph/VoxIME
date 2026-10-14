@@ -202,7 +202,7 @@ public class VoximeRecognizeActivity extends AppCompatActivity {
     // Model initialization
     private void initModel(String langCode) {
 
-        mVoxime = new Voxime(this);
+        mVoxime = Voxime.getShared(this, "recognize-activity");
         mVoxime.loadModel();
         mVoxime.setLanguage(langCode);
         Log.d(TAG, "Language code " + langCode);
@@ -319,9 +319,11 @@ public class VoximeRecognizeActivity extends AppCompatActivity {
     }
 
     private void deinitModel() {
-        if (mVoxime != null) {
-            mVoxime.unloadModel();
-            mVoxime = null;
+        Voxime.releaseShared("recognize-activity");
+        mVoxime = null;
+        if (mRecorder != null) {
+            mRecorder.shutdown();
+            mRecorder = null;
         }
     }
 

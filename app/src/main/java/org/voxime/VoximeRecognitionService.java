@@ -33,6 +33,7 @@ import static org.voxime.asr.Transcribe.ACTION_TRANSCRIBE;
 
 public class VoximeRecognitionService extends RecognitionService {
     private static final String TAG = "VoximeRecognitionService";
+    private static final String ENGINE_OWNER = "recognition-service";
     private Recorder mRecorder = null;
     private Voxime mVoxime = null;
     private boolean recognitionCancelled = false;
@@ -70,7 +71,10 @@ public class VoximeRecognitionService extends RecognitionService {
 
         initModel(callback, langCode);
 
-        mRecorder = new Recorder(this);
+        // Reuse the resident recorder; only refresh the listener for this request.
+        if (mRecorder == null) {
+            mRecorder = new Recorder(this);
+        }
         mRecorder.setListener(message -> {
             if (message.equals(Recorder.MSG_RECORDING)){
                 try {
@@ -118,8 +122,9 @@ public class VoximeRecognitionService extends RecognitionService {
     @Override
     protected void onCancel(Callback callback) {
         Log.d(TAG,"cancel");
-        stopRecording();
         recognitionCancelled = true;
+        if (mVoxime != null) mVoxime.stop();
+        stopRecording();
     }
 
     @Override
@@ -128,10 +133,11 @@ public class VoximeRecognitionService extends RecognitionService {
         stopRecording();
     }
 
-    // Model initialization
+    // Model initialization: reuses the process-wide engine instead of loading
+    // a fresh copy of all ONNX sessions for every recognition request.
     private void initModel(Callback callback, String langCode) {
 
-        mVoxime = new Voxime(this);
+        mVoxime = Voxime.getShared(this, ENGINE_OWNER);
         mVoxime.loadModel();
         mVoxime.setLanguage(langCode);
         Log.d(TAG, "Language token " + langCode);
@@ -213,13 +219,13 @@ public class VoximeRecognitionService extends RecognitionService {
 
     @Override
     public void onDestroy (){
-        deinitModel();
-    }
-    private void deinitModel() {
-        if (mVoxime != null) {
-            mVoxime.unloadModel();
-            mVoxime = null;
+        if (mRecorder != null) {
+            mRecorder.stop();
+            mRecorder.shutdown();
+            mRecorder = null;
         }
+        Voxime.releaseShared(ENGINE_OWNER);
+        mVoxime = null;
     }
 
     private void checkRecordPermission(Callback callback) {
