@@ -52,11 +52,21 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.3) als Build-Artefakt unter [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) (Artifacts → „VoxIME-debug“; arm64-v8a, minSdk 28). Jeder grüne CI-Lauf liefert eine frisch gebaute APK; feste Release-APKs liegen nicht mehr im Repo.
+Aktuelle APK (0.5.4) als Build-Artefakt unter [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) (Artifacts → „VoxIME-debug“; arm64-v8a, minSdk 28). Jeder grüne CI-Lauf liefert eine frisch gebaute APK; feste Release-APKs liegen nicht mehr im Repo.
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
 ## Changelog
+
+### 0.5.4 (2026-10-14)
+- **Performance:** Mel-Frontend mit echter 400-Punkt-FFT statt direkter DFT (vorher ~241 Mio. innere Schleifendurchläufe pro Diktat, unabhängig von der Audiolänge); Hann-Fenster/Mel-Filterbank statisch vorberechnet; Frames vollständig hinter dem realen Audio werden analytisch als Nullleistung behandelt. Gegenüber der alten Implementierung numerisch identisch (Unit-Test gegen die DFT-Referenz).
+- **Performance:** Decoder-Logits werden nur noch für die letzte Position über den flachen Tensor-Buffer gelesen statt [1,S,131072] vollständig als Java-Array zu materialisieren (vorher bis ~190 MiB Heap beim Prefill).
+- **Speicher/Lifecycle:** Prozessweite Engine-Registry — App, IME und RecognitionService hielten zuvor je eine eigene Kopie aller drei ONNX-Sessions im selben Prozess; jetzt ein residenter Satz. Der RecognitionService erzeugt keine neue Engine + Recorder mehr pro Anfrage.
+- **Abbruch:** `Voxime.stop()` bricht laufende Transkriptionen jetzt zwischen Phasen und Decoder-Schritten ab; abgebrochene Aufträge liefern kein Resultat mehr. `Recorder.stop()` blockiert den Main Thread nicht mehr.
+- **Aufnahme:** VAD erhält jeden Frame direkt aus dem Aufnahmepuffer statt den gesamten Puffer pro Schritt zu kopieren (~480 MB Kopiervolumen bei 30 s entfallen).
+- **Messung:** strukturierte Phasen-Timings (StageTiming) — eine JSON-Zeile pro Diktat in voxime.log/logcat mit allen Pipeline-Phasen, Decoder-Statistiken und Abbruchgrund.
+- **Logging:** Datei-Log schreibt in einem Hintergrund-Thread; kein synchroner FileWriter mehr auf Inferenz-/UI-Threads.
+- Details: `docs/performance-0.5.4.md`.
 
 ### 0.5.3 (2026-10-09)
 - **Bugfix:** `VoxtralEngine.loadModel()` erzeugte die drei ONNX-Sessions nicht mehr (in 0.5.2 beim Einfügen der Lade-Fortschrittsanzeige versehentlich entfernt) — jede Transkription crashte mit `IllegalStateException: Engine not loaded`. Die Aufrufe sind wiederhergestellt, jetzt mit Fortschrittsmeldung pro Schritt (Encoder 384 MB → Embeddings 252 MB → Decoder 2,3 GB).
