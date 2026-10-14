@@ -50,7 +50,6 @@ public class Voxime {
     private Thread mWorkerThread = null;
     private Thread mLoaderThread = null;
     private final Context mContext;
-    private long startTime;
 
     public Voxime(Context context) {
         mContext = context;
@@ -219,23 +218,26 @@ public class Voxime {
     }
 
     private void processRecordBuffer() {
+        StageTiming timing = new StageTiming();
         try {
             VoxtralEngine engine = mVoxtralEngine;
             if (engine == null) {
                 sendUpdate("Engine not initialized or file path not set");
                 return;
             }
+            long pcmStart = android.os.SystemClock.elapsedRealtimeNanos();
             float[] samples = RecordBuffer.getSamples();
+            timing.addPhase(StageTiming.PCM_CONVERT, pcmStart);
             if (samples == null) {
                 sendUpdate("Engine not initialized or file path not set");
                 return;
             }
-            startTime = System.currentTimeMillis();
             AppLog.i(mContext, TAG, "transcribe start: lang=" + mLangCode + " samples=" + samples.length);
             sendUpdate(MSG_PROCESSING);
             VoxtralEngine.EngineResult res = engine.transcribe(samples,
                     "auto".equals(mLangCode) ? null : mLangCode,
                     128,
+                    timing,
                     new VoxtralEngine.Listener() {
                         @Override
                         public void onUpdate(String message) { sendUpdate(message); }
@@ -243,8 +245,7 @@ public class Voxime {
             VoximeResult result = new VoximeResult(res.text, mLangCode, mAction);
             sendResult(result);
             if (res.truncated) sendUpdate(MSG_TRUNCATED);
-            long timeTaken = System.currentTimeMillis() - startTime;
-            Log.d(TAG, "Time Taken for transcription: " + timeTaken + "ms");
+            timing.logSummary("dictation:");
             sendUpdate(MSG_PROCESSING_DONE);
         } catch (Exception e) {
             AppLog.e(mContext, TAG, "transcription failed", e);

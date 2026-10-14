@@ -85,6 +85,11 @@ public class VoxtralEngine {
     }
 
     public synchronized void loadModel() throws Exception {
+        loadModel(null);
+    }
+
+    /** Loads all sessions; per-session load durations are recorded into timing when provided. */
+    public synchronized void loadModel(StageTiming timing) throws Exception {
         if (decoderSession != null) return;
         File dir = context.getExternalFilesDir(null);
         env = OrtEnvironment.getEnvironment();
@@ -98,6 +103,8 @@ public class VoxtralEngine {
         long t = System.currentTimeMillis();
         encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
         loadProgress("Encoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
+        if (timing != null) timing.addNanos(StageTiming.LOAD_ENCODER_SESSION, (System.currentTimeMillis() - t) * 1000000L);
+        closeQuietly(enc);
 
         OrtSession.SessionOptions emb = new OrtSession.SessionOptions();
         emb.setIntraOpNumThreads(2);
@@ -105,6 +112,8 @@ public class VoxtralEngine {
         t = System.currentTimeMillis();
         embedSession = env.createSession(new File(dir, "embed_tokens_q4.onnx").getAbsolutePath(), emb);
         loadProgress("Embeddings loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
+        if (timing != null) timing.addNanos(StageTiming.LOAD_EMBED_SESSION, (System.currentTimeMillis() - t) * 1000000L);
+        closeQuietly(emb);
 
         OrtSession.SessionOptions dec = new OrtSession.SessionOptions();
         dec.setIntraOpNumThreads(threads);
@@ -112,9 +121,13 @@ public class VoxtralEngine {
         t = System.currentTimeMillis();
         decoderSession = env.createSession(new File(dir, "decoder_model_merged_q4.onnx").getAbsolutePath(), dec);
         loadProgress("Decoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
+        if (timing != null) timing.addNanos(StageTiming.LOAD_DECODER_SESSION, (System.currentTimeMillis() - t) * 1000000L);
+        closeQuietly(dec);
 
         loadProgress("Loading vocabulary...");
+        long tv = System.currentTimeMillis();
         loadVocab();
+        if (timing != null) timing.addNanos(StageTiming.LOAD_VOCAB, (System.currentTimeMillis() - tv) * 1000000L);
         AppLog.i(context, TAG, "engine loaded (3 sessions + vocab)");
         Log.d(TAG, "Voxtral engine loaded");
     }
@@ -124,6 +137,10 @@ public class VoxtralEngine {
         try { if (embedSession != null) embedSession.close(); } catch (Exception ignored) {}
         try { if (decoderSession != null) decoderSession.close(); } catch (Exception ignored) {}
         encoderSession = null; embedSession = null; decoderSession = null;
+    }
+
+    private static void closeQuietly(OrtSession.SessionOptions options) {
+        try { if (options != null) options.close(); } catch (Exception ignored) {}
     }
 
     public boolean isLoaded() {
@@ -375,6 +392,11 @@ public class VoxtralEngine {
     // ---------- Transcription ----------
 
     public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, Listener listener) throws Exception {
+        return transcribe(samples, langCode, maxNewTokens, null, listener);
+    }
+
+    /** Same as transcribe(), recording stage timings into the provided instance. */
+    public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, StageTiming externalTiming, Listener listener) throws Exception {
         if (decoderSession == null) throw new IllegalStateException("Engine not loaded");
 
         // Silence margin: 8 tokens (0.64 s) of real silence appended so the model
@@ -388,11 +410,11 @@ public class VoxtralEngine {
             padded = new float[samples.length + silenceMarginSamples];
             System.arraycopy(samples, 0, padded, 0, samples.length);
         }
-        long t0 = System.currentTimeMillis();
+        StageTiming timing = (externalTiming != null) ? externalTiming : new StageTiming();
+        long t0 = System.nanoTime();
         // 1. mel
         float[][] mel = melSpectrogram(padded);
-        long t1 = System.currentTimeMillis();
-        AppLog.i(context, TAG, "mel done in " + (t1 - t0) + "ms");
+        timing.addPhase(StageTiming.MEL, t0);
         if (listener != null) listener.onUpdate("Mel done");
 
         // 2. encoder
@@ -400,23 +422,27 @@ public class VoxtralEngine {
         float[] flatMel = new float[128 * 3000];
         for (int m = 0; m < 128; m++) System.arraycopy(mel[m], 0, flatMel, m * 3000, 3000);
         float[] audioFeatures;
+        long encRunStart = System.nanoTime();
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(flatMel), melShape)) {
             Map<String, OnnxTensor> feeds = new HashMap<>();
             feeds.put("audio_values", t);
             try (OrtSession.Result res = encoderSession.run(feeds)) {
+                timing.addPhase(StageTiming.ENCODER_RUN, encRunStart);
+                long encCopyStart = System.nanoTime();
                 float[][] feats = (float[][]) res.get(0).getValue();
                 audioFeatures = new float[feats.length * feats[0].length];
                 for (int i = 0; i < feats.length; i++)
                     System.arraycopy(feats[i], 0, audioFeatures, i * feats[0].length, feats[0].length);
+                timing.addPhase(StageTiming.ENCODER_COPY, encCopyStart);
             }
         }
-        long t2 = System.currentTimeMillis();
-        AppLog.i(context, TAG, "encoder done in " + (t2 - t1) + "ms");
         if (listener != null) listener.onUpdate("Encoder done");
 
         int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (padded.length + 1279) / 1280));
         AppLog.i(context, TAG, "audio tokens for prefill: " + numAudioTokens + " (" + samples.length + " samples + silence margin)");
+        timing.setTokenCounts(numAudioTokens, -1, 0);
         long[] prompt = buildPrompt(langCode, numAudioTokens);
+        long promptEmbedStart = System.nanoTime();
         long[][] promptIdsArr = {prompt};
         float[][][] promptEmbeds;
         try (OnnxTensor t = OnnxTensor.createTensor(env, promptIdsArr)) {
@@ -426,6 +452,7 @@ public class VoxtralEngine {
                 promptEmbeds = (float[][][]) res.get(0).getValue();
             }
         }
+        timing.addPhase(StageTiming.PROMPT_EMBED_RUN, promptEmbedStart);
         // scatter audio features into [AUDIO] positions
         int pos = 0;
         int audioIdx = 0;
@@ -439,9 +466,8 @@ public class VoxtralEngine {
         if (audioIdx != numAudioTokens) {
             throw new IllegalStateException("audio scatter mismatch: " + audioIdx + " != " + numAudioTokens);
         }
-        long t3 = System.currentTimeMillis();
-
-        AppLog.i(context, TAG, "prompt embeddings ready in " + (t3 - t2) + "ms, prompt len=" + prompt.length + ", audio positions=" + audioIdx);
+        timing.addPhase(StageTiming.AUDIO_SCATTER, promptEmbedStart);
+        timing.setTokenCounts(numAudioTokens, prompt.length, 0);
         // 4. decoder loop with KV cache
         // Ownership model: the current OrtSession.Result owns the present.* tensors.
         // It stays OPEN until the next decoder run has succeeded; only then is the
@@ -454,6 +480,7 @@ public class VoxtralEngine {
         try {
             for (int step = 0; step < maxNewTokens; step++) {
                 int seqLen = curEmbeds.length;
+                long tensorPrepStart = System.nanoTime();
                 long[] attn = new long[curLen + seqLen];
                 java.util.Arrays.fill(attn, 1L);
                 long[] posIds = new long[seqLen];
@@ -483,10 +510,19 @@ public class VoxtralEngine {
                         feeds.put("past_key_values." + l + ".value", (OnnxTensor) prevResult.get("present." + l + ".value").get());
                     }
                 }
-                long nextId;
-                if (step < 3 || step % 8 == 0)
-                    AppLog.i(context, TAG, "decoder run " + step + " starting (seqLen=" + seqLen + ")");
+                boolean isPrefill = (step == 0);
+                long runStart = System.nanoTime();
                 OrtSession.Result res = decoderSession.run(feeds);
+                long runNanos = System.nanoTime() - runStart;
+                timing.recordTensorPrep(System.nanoTime() - tensorPrepStart - runNanos);
+                if (isPrefill) {
+                    timing.addNanos(StageTiming.PREFILL_RUN, runNanos);
+                } else {
+                    timing.recordDecodeRun(runNanos);
+                }
+                timing.setStep(step);
+                long logitsStart = System.nanoTime();
+                long nextId;
                 // created input tensors are no longer needed once run() returned
                 if (!hasPast) {
                     for (Map.Entry<String, OnnxTensor> e : feeds.entrySet()) {
@@ -502,10 +538,13 @@ public class VoxtralEngine {
                     res.close();
                     throw e;
                 }
+                timing.recordLogitsEval(System.nanoTime() - logitsStart);
+                if (isPrefill) timing.addNanos(StageTiming.PREFILL_LOGITS, System.nanoTime() - logitsStart);
+                if (generated.isEmpty()) timing.markFirstToken();
                 // new generation succeeded: release the previous one (exactly once)
                 if (prevResult != null) prevResult.close();
                 prevResult = res;
-                if (nextId == EOS_TOKEN_ID) break;
+                if (nextId == EOS_TOKEN_ID) { timing.setStopReason("eos"); break; }
                 // repetition guard: a stuck loop (same token over and over) wastes
                 // minutes of compute; treat 6 consecutive identical tokens as stop
                 if (!generated.isEmpty()) {
@@ -514,6 +553,7 @@ public class VoxtralEngine {
                         repeatStreak++;
                         if (repeatStreak >= 6) {
                             AppLog.w(context, TAG, "repetition guard triggered at step " + step + " (token " + nextId + ")");
+                            timing.setStopReason("repetition_guard");
                             generated.add(nextId);
                             break;
                         }
@@ -524,6 +564,7 @@ public class VoxtralEngine {
                 generated.add(nextId);
                 curLen += seqLen;
                 float[][] nextEmb1d;
+                long embStart = System.nanoTime();
                 try (OnnxTensor t = OnnxTensor.createTensor(env, new long[][]{{nextId}})) {
                     Map<String, OnnxTensor> f = new HashMap<>();
                     f.put("input_ids", t);
@@ -532,22 +573,20 @@ public class VoxtralEngine {
                         nextEmb1d = e[0];
                     }
                 }
+                timing.recordEmbedRun(System.nanoTime() - embStart);
                 curEmbeds = nextEmb1d;
                 if (listener != null && step % 8 == 0)
                     listener.onUpdate("Decoding " + step);
-                if (step < 8 || step % 8 == 0)
-                    AppLog.i(context, TAG, "decode step " + step + " done, nextId=" + nextId + ", curLen=" + curLen + ", elapsed=" + (System.currentTimeMillis() - t3) + "ms");
             }
         } finally {
             if (prevResult != null) {
                 try { prevResult.close(); } catch (Exception ignored) {}
             }
         }
-        long t4 = System.currentTimeMillis();
-        String timing = "timings: mel=" + (t1 - t0) + "ms enc=" + (t2 - t1) + "ms prompt=" + (t3 - t2) + "ms decode=" + (t4 - t3) + "ms tokens=" + generated.size();
-        Log.d(TAG, timing);
-        AppLog.i(context, TAG, timing);
         boolean truncated = !generated.isEmpty() && generated.size() >= maxNewTokens;
+        if (truncated) timing.setStopReason("token_limit");
+        timing.setTokenCounts(numAudioTokens, prompt.length, generated.size());
+        timing.logSummary("transcribe:");
         return new EngineResult(decode(generated), truncated);
     }
 
