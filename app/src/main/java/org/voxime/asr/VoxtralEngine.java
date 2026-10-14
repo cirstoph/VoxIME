@@ -223,129 +223,13 @@ public class VoxtralEngine {
     }
 
     // ---------- Mel spectrogram (exact transformers.js Voxime feature extractor) ----------
-
-    static float[] melFilterBank(int numMelFilters, int numFreqBins) {
-        double melMin = hzToMelSlaney(0.0);
-        double melMax = hzToMelSlaney(8000.0);
-        double[] melFreqs = new double[numMelFilters + 2];
-        for (int i = 0; i < numMelFilters + 2; i++) {
-            melFreqs[i] = melMin + (melMax - melMin) * i / (numMelFilters + 1);
-        }
-        double[] filterFreqs = new double[numMelFilters + 2];
-        for (int i = 0; i < numMelFilters + 2; i++) {
-            filterFreqs[i] = melToHzSlaney(melFreqs[i]);
-        }
-        double[] fftFreqs = new double[numFreqBins];
-        for (int i = 0; i < numFreqBins; i++) {
-            fftFreqs[i] = 8000.0 * i / (numFreqBins - 1);
-        }
-        float[] fb = new float[numMelFilters * numFreqBins];
-        for (int m = 0; m < numMelFilters; m++) {
-            double a = filterFreqs[m], b = filterFreqs[m + 1], c = filterFreqs[m + 2];
-            double enorm = 2.0 / (c - a);
-            for (int k = 0; k < numFreqBins; k++) {
-                double up = b != a ? (fftFreqs[k] - a) / (b - a) : 0.0;
-                double down = c != b ? (c - fftFreqs[k]) / (c - b) : 0.0;
-                double v = Math.max(0.0, Math.min(up, down));
-                fb[m * numFreqBins + k] = (float) (v * enorm);
-            }
-        }
-        return fb;
-    }
-
-    static double hzToMelSlaney(double f) {
-        if (f >= 1000.0) return 15.0 + Math.log(f / 1000.0 + 1e-10) / Math.log(6.4) * 27.0;
-        return 3.0 * f / 200.0;
-    }
-
-    static double melToHzSlaney(double m) {
-        if (m >= 15.0) return 1000.0 * Math.exp(Math.log(6.4) / 27.0 * (m - 15.0));
-        return 200.0 / 3.0 * m;
-    }
-
     /**
      * 16 kHz mono float samples -> (128, 3000) log-mel, padded/truncated to 30 s.
+     * Implemented in MelFrontend (FFT + cached tables); output is numerically
+     * identical to the previous direct-DFT implementation (see MelFrontendTest).
      */
     public float[][] melSpectrogram(float[] samples) {
-        final int nFft = 400, hop = 160, nMels = 128, nFreq = nFft / 2 + 1;
-        int target = 480000;
-        float[] audio = samples;
-        if (audio.length < target) {
-            audio = new float[target];
-            System.arraycopy(samples, 0, audio, 0, samples.length);
-        } else {
-            audio = new float[target];
-            System.arraycopy(samples, 0, audio, 0, target);
-        }
-        int nFrames = 1 + (audio.length - nFft) / hop;
-        if (nFrames > 3000) nFrames = 3000;
-
-        float[] window = new float[nFft];
-        for (int i = 0; i < nFft; i++) {
-            window[i] = (float) (0.5 - 0.5 * Math.cos(2.0 * Math.PI * i / nFft));
-        }
-
-        float[] melFb = melFilterBank(nMels, nFreq);
-        double[][] melOut = new double[3000][nMels];
-
-        float[] frame = new float[nFft];
-        double[] spec = new double[nFreq];
-        for (int f = 0; f < nFrames; f++) {
-            int off = f * hop;
-            for (int i = 0; i < nFft; i++) frame[i] = audio[off + i] * window[i];
-            powerSpectrum(frame, spec);
-            for (int m = 0; m < nMels; m++) {
-                double sum = 0.0;
-                for (int k = 0; k < nFreq; k++) {
-                    sum += spec[k] * melFb[m * nFreq + k];
-                }
-                melOut[f][m] = sum;
-            }
-        }
-
-        double maxLog = -Double.MAX_VALUE;
-        double[][] logSpec = new double[3000][nMels];
-        for (int f = 0; f < 3000; f++) {
-            for (int m = 0; m < nMels; m++) {
-                double v = Math.log10(Math.max(1e-10, melOut[f][m]));
-                logSpec[f][m] = v;
-                if (v > maxLog) maxLog = v;
-            }
-        }
-        float[][] out = new float[nMels][3000];
-        for (int f = 0; f < 3000; f++) {
-            for (int m = 0; m < nMels; m++) {
-                double v = Math.max(logSpec[f][m], maxLog - 8.0);
-                out[m][f] = (float) ((v + 4.0) / 4.0);
-            }
-        }
-        return out;
-    }
-
-    private static final int FFT_N = 400;
-    private static final int FREQ_BINS = FFT_N / 2 + 1;
-    private static final double[] DFT_COS = new double[FREQ_BINS * FFT_N];
-    private static final double[] DFT_SIN = new double[FREQ_BINS * FFT_N];
-    static {
-        for (int k = 0; k < FREQ_BINS; k++) {
-            for (int t = 0; t < FFT_N; t++) {
-                double ang = -2.0 * Math.PI * k * t / FFT_N;
-                DFT_COS[k * FFT_N + t] = Math.cos(ang);
-                DFT_SIN[k * FFT_N + t] = Math.sin(ang);
-            }
-        }
-    }
-    private static void powerSpectrum(float[] frame, double[] out) {
-        for (int k = 0; k < FREQ_BINS; k++) {
-            double re = 0.0, im = 0.0;
-            int base = k * FFT_N;
-            for (int t = 0; t < FFT_N; t++) {
-                double v = frame[t];
-                re += v * DFT_COS[base + t];
-                im += v * DFT_SIN[base + t];
-            }
-            out[k] = re * re + im * im;
-        }
+        return MelFrontend.compute(samples);
     }
 
     // ---------- Prompt building ----------
@@ -552,9 +436,11 @@ public class VoxtralEngine {
                 }
                 for (OnnxTensor t : ownedInputs) t.close();
                 try {
-                    float[][][] logits3 = (float[][][]) res.get(0).getValue();
-                    float[] lastLogits = logits3[0][logits3[0].length - 1];
-                    nextId = argmax(lastLogits);
+                    // Read only the LAST position's logits row through the flat
+                    // buffer API. The old getValue() materialized the whole
+                    // [1, S, 131072] float tensor on the Java heap (0.5 MiB per
+                    // position; ~190 MiB for a 383-position prefill).
+                    nextId = argmaxLastRow(res);
                 } catch (Exception e) {
                     res.close();
                     throw e;
@@ -609,6 +495,31 @@ public class VoxtralEngine {
         timing.setTokenCounts(numAudioTokens, prompt.length, generated.size());
         timing.logSummary("transcribe:");
         return new EngineResult(decode(generated), truncated);
+    }
+
+    /**
+     * Argmax over the last position's logits row, read from the flat tensor
+     * buffer. The OrtSession.Result stays open (caller owns it); the buffer is
+     * copied row-wise (OnnxTensor does not expose a zero-copy view), but only
+     * for the last position instead of the whole [1, S, vocab] tensor.
+     */
+    private static long argmaxLastRow(OrtSession.Result res) throws OrtException {
+        OnnxValue v = res.get(0);
+        long[] shape = ((OnnxTensor) v).getInfo().getShape();
+        long seqLen = shape[1];
+        long vocab = shape[2];
+        java.nio.FloatBuffer fb = ((OnnxTensor) v).getFloatBuffer();
+        long offset = (seqLen - 1) * vocab;
+        int best = 0;
+        float bestVal = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i < vocab; i++) {
+            float val = fb.get((int) offset + i);
+            if (val > bestVal) {
+                bestVal = val;
+                best = i;
+            }
+        }
+        return best;
     }
 
     private static long argmax(float[] logits) {

@@ -11,6 +11,8 @@ import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 /**
  * File logger for on-device diagnosis. Writes voxime.log into the app's
@@ -24,6 +26,8 @@ public final class AppLog {
     private static final String FILE_NAME = "voxime.log";
     private static final long MAX_BYTES = 2 * 1024 * 1024;   // rotate at 2 MB
     private static final Object LOCK = new Object();
+    private static final BlockingQueue<String> PENDING = new ArrayBlockingQueue<>(1024);
+    private static volatile boolean writerStarted = false;
     private static File logFile;
 
     private AppLog() {}
@@ -60,9 +64,54 @@ public final class AppLog {
         write(null, "E", tag, message, t);
     }
 
+    /**
+     * Async file logging: the caller only formats the line and hands it to the
+     * background writer; no FileWriter on the inference/UI thread. Errors
+     * mirror to logcat synchronously and are never lost by a dropped queue
+     * entry (errors are rare, the queue covers bursts of debug lines).
+     */
     private static void write(Context context, String level, String tag, String message, Throwable t) {
         if (context != null) init(context);
         Log.d(tag, message);
+        if ("E".equals(level)) {
+            writeLine(level, tag, message, t);
+            return;
+        }
+        String ts = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
+        String line = ts + ' ' + level + '/' + tag + ": " + message + '\n';
+        if (!PENDING.offer(line)) {
+            writeLine(level, tag, message, t);   // queue full: rare, write directly
+        }
+        startWriter();
+    }
+
+    private static synchronized void startWriter() {
+        if (writerStarted) return;
+        writerStarted = true;
+        Thread writer = new Thread(() -> {
+            while (true) {
+                try {
+                    String line = PENDING.take();
+                    synchronized (LOCK) {
+                        if (logFile != null) {
+                            try (FileWriter fw = new FileWriter(logFile, true)) {
+                                fw.append(line);
+                            }
+                            rotateIfNeeded();
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                } catch (Exception ignored) {
+                }
+            }
+        }, "voxime-logwriter");
+        writer.setDaemon(true);
+        writer.start();
+    }
+
+    private static void writeLine(String level, String tag, String message, Throwable t) {
         synchronized (LOCK) {
             if (logFile == null) return;
             try {
