@@ -334,7 +334,7 @@ public class VoximeInputMethodService extends InputMethodService {
     // Model initialization
     private void initModel() {
 
-        mVoxime = new Voxime(this);
+        mVoxime = Voxime.getShared(this, "ime");
         mVoxime.loadModel();
         mVoxime.setListener(new Voxime.VoximeListener() {
             @Override
@@ -390,9 +390,7 @@ public class VoximeInputMethodService extends InputMethodService {
     }
 
     private void deinitModel() {
-        if (mVoxime != null) {
-            mVoxime.unloadModel();
-            mVoxime = null;
-        }
+        Voxime.releaseShared("ime");
+        mVoxime = null;
     }
 }

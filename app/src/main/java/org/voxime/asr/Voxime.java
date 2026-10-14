@@ -6,6 +6,8 @@ import android.util.Log;
 import org.voxime.utils.AppLog;
 
 import java.io.File;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
@@ -20,6 +22,43 @@ import java.util.concurrent.locks.ReentrantLock;
 public class Voxime {
 
     public enum ModelState { MISSING, LOADING, READY, ERROR }
+
+    /**
+     * Process-wide engine registry. Activity, IME and RecognitionService run in
+     * the same process and each used to load its own copy of all three ONNX
+     * sessions. The registry keeps exactly one engine resident; components
+     * acquire it with an owner key and release the reference when destroyed.
+     */
+    private static final Map<String, Voxime> SHARED = new HashMap<>();
+    private static final Map<String, Integer> REFCOUNTS = new HashMap<>();
+
+    /** Returns the process-wide engine for owner, creating it if necessary. */
+    public static synchronized Voxime getShared(Context context, String owner) {
+        Voxime v = SHARED.get(owner);
+        if (v == null) {
+            v = new Voxime(context.getApplicationContext());
+            SHARED.put(owner, v);
+        }
+        REFCOUNTS.merge(owner, 1, Integer::sum);
+        return v;
+    }
+
+    /** Releases the caller's reference; the engine stays resident for the next owner. */
+    public static synchronized void releaseShared(String owner) {
+        Integer n = REFCOUNTS.get(owner);
+        if (n == null) return;
+        if (n <= 1) REFCOUNTS.remove(owner); else REFCOUNTS.put(owner, n - 1);
+    }
+
+    /** True when the underlying engine is ready (tests/diagnostics). */
+    public static synchronized boolean hasSharedEngine() {
+        return !SHARED.isEmpty();
+    }
+
+    /** Number of live Voxime instances (tests/diagnostics). */
+    public static synchronized int getSharedInstanceCount() {
+        return SHARED.size();
+    }
 
     public interface VoximeListener {
         void onUpdateReceived(String message);
@@ -36,6 +75,9 @@ public class Voxime {
     public static final String MSG_LOAD_READY = "Model ready";
 
     private final AtomicBoolean mInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean mCancelRequested = new AtomicBoolean(false);
+    private volatile int mActiveTaskId = 0;
+    private volatile int mResultTaskId = 0;
     private final Lock taskLock = new ReentrantLock(true);
     private final Condition hasTask = taskLock.newCondition();
     private volatile boolean taskAvailable = false;
@@ -78,6 +120,7 @@ public class Voxime {
     public synchronized void loadModel() {
         if (mState == ModelState.READY || mState == ModelState.LOADING) return;
         if (mVoxtralEngine != null) return;
+        if (mState == ModelState.ERROR) return;
         File dir = mContext.getExternalFilesDir(null);
         if (dir == null) {
             mState = ModelState.ERROR;
@@ -134,7 +177,17 @@ public class Voxime {
 
     /** Stops the worker, waits for the current transcription to finish, releases the engine. */
     public void unloadModel() {
+        unloadModel(false);
+    }
+
+    /**
+     * Stops the worker and releases the engine. force interrupts the worker even
+     * if it is inside a long-running ORT run(); the sessions are only closed after
+     * the worker thread has verifiably terminated.
+     */
+    public void unloadModel(boolean force) {
         shutdown = true;
+        mCancelRequested.set(true);
         taskLock.lock();
         try {
             taskAvailable = false;
@@ -144,12 +197,23 @@ public class Voxime {
         }
         Thread w = mWorkerThread;
         if (w != null) {
+            if (force) w.interrupt();
             try { w.join(3000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            if (w.isAlive()) {
+                AppLog.w(mContext, TAG, "worker thread did not terminate within 3 s" + (force ? " after interrupt" : "") + "; sessions stay open");
+                mStateError = "worker still running";
+                return;
+            }
             mWorkerThread = null;
         }
         Thread l = mLoaderThread;
         if (l != null) {
+            if (force) l.interrupt();
             try { l.join(3000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            if (l.isAlive()) {
+                AppLog.w(mContext, TAG, "loader thread did not terminate within 3 s; sessions stay open");
+                return;
+            }
             mLoaderThread = null;
         }
         VoxtralEngine e = mVoxtralEngine;
@@ -166,15 +230,18 @@ public class Voxime {
         this.mLangCode = language;
     }
 
-    public void start() {
+    public synchronized int startTask() {
         if (!isReady()) {
             sendUpdate(mState == ModelState.LOADING ? "Engine still loading" : "Engine not ready");
-            return;
+            return -1;
         }
         if (!mInProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Execution is already in progress...");
-            return;
+            return -1;
         }
+        mActiveTaskId++;
+        mCancelRequested.set(false);
+        int taskId = mActiveTaskId;
         taskLock.lock();
         try {
             taskAvailable = true;
@@ -182,10 +249,26 @@ public class Voxime {
         } finally {
             taskLock.unlock();
         }
+        return taskId;
     }
 
+    public void start() {
+        startTask();
+    }
+
+    /**
+     * Requests cancellation of the active transcription. The worker checks the
+     * flag between decoder steps and phases; a cancelled task delivers no
+     * result. The next startTask() clears the flag.
+     */
     public void stop() {
+        mCancelRequested.set(true);
         mInProgress.set(false);
+    }
+
+    /** True when a cancellation was requested for the current task. */
+    public boolean isCancelRequested() {
+        return mCancelRequested.get();
     }
 
     public boolean isInProgress() {
@@ -205,6 +288,7 @@ public class Voxime {
                     run = taskAvailable;
                     taskAvailable = false;
                 }
+                run = run && !mCancelRequested.get();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
@@ -212,14 +296,18 @@ public class Voxime {
                 taskLock.unlock();
             }
             if (run && !shutdown) {
-                processRecordBuffer();
+                processRecordBuffer(mActiveTaskId);
             }
         }
     }
 
-    private void processRecordBuffer() {
+    private void processRecordBuffer(int taskId) {
         StageTiming timing = new StageTiming();
         try {
+            if (mCancelRequested.get()) {
+                AppLog.i(mContext, TAG, "task " + taskId + " cancelled before start");
+                return;
+            }
             VoxtralEngine engine = mVoxtralEngine;
             if (engine == null) {
                 sendUpdate("Engine not initialized or file path not set");
@@ -238,15 +326,23 @@ public class Voxime {
                     "auto".equals(mLangCode) ? null : mLangCode,
                     128,
                     timing,
+                    this::isCancelRequested,
                     new VoxtralEngine.Listener() {
                         @Override
                         public void onUpdate(String message) { sendUpdate(message); }
                     });
+            if (mCancelRequested.get()) {
+                AppLog.i(mContext, TAG, "task " + taskId + " cancelled, result discarded");
+                return;
+            }
             VoximeResult result = new VoximeResult(res.text, mLangCode, mAction);
+            mResultTaskId = taskId;
             sendResult(result);
             if (res.truncated) sendUpdate(MSG_TRUNCATED);
             timing.logSummary("dictation:");
             sendUpdate(MSG_PROCESSING_DONE);
+        } catch (VoxtralEngine.TranscriptionCancelledException e) {
+            AppLog.i(mContext, TAG, "transcription cancelled by user");
         } catch (Exception e) {
             AppLog.e(mContext, TAG, "transcription failed", e);
             Log.e(TAG, "Error during transcription", e);

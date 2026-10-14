@@ -74,6 +74,11 @@ public class VoxtralEngine {
 
 
     /** Transcription output with a flag telling whether the token limit cut it off. */
+    /** Thrown when a transcription is cancelled between phases or decoder steps. */
+    public static final class TranscriptionCancelledException extends Exception {
+        public TranscriptionCancelledException() { super("transcription cancelled"); }
+    }
+
     public static final class EngineResult {
         public final String text;
         public final boolean truncated;
@@ -397,6 +402,16 @@ public class VoxtralEngine {
 
     /** Same as transcribe(), recording stage timings into the provided instance. */
     public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, StageTiming externalTiming, Listener listener) throws Exception {
+        return transcribe(samples, langCode, maxNewTokens, externalTiming, null, listener);
+    }
+
+    /**
+     * Full transcription with cancellation. isCancelled is checked between
+     * pipeline phases and between decoder steps; an in-flight ORT run() cannot
+     * be terminated (no RunOptions termination support in this runtime
+     * version), so the abort latency is bounded by the longest single run().
+     */
+    public EngineResult transcribe(float[] samples, String langCode, int maxNewTokens, StageTiming externalTiming, java.util.function.BooleanSupplier isCancelled, Listener listener) throws Exception {
         if (decoderSession == null) throw new IllegalStateException("Engine not loaded");
 
         // Silence margin: 8 tokens (0.64 s) of real silence appended so the model
@@ -411,6 +426,9 @@ public class VoxtralEngine {
             System.arraycopy(samples, 0, padded, 0, samples.length);
         }
         StageTiming timing = (externalTiming != null) ? externalTiming : new StageTiming();
+        final java.util.function.BooleanSupplier cancelled =
+                (isCancelled != null) ? isCancelled : () -> false;
+        if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
         long t0 = System.nanoTime();
         // 1. mel
         float[][] mel = melSpectrogram(padded);
@@ -436,6 +454,7 @@ public class VoxtralEngine {
                 timing.addPhase(StageTiming.ENCODER_COPY, encCopyStart);
             }
         }
+        if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
         if (listener != null) listener.onUpdate("Encoder done");
 
         int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (padded.length + 1279) / 1280));
@@ -466,6 +485,7 @@ public class VoxtralEngine {
         if (audioIdx != numAudioTokens) {
             throw new IllegalStateException("audio scatter mismatch: " + audioIdx + " != " + numAudioTokens);
         }
+        if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
         timing.addPhase(StageTiming.AUDIO_SCATTER, promptEmbedStart);
         timing.setTokenCounts(numAudioTokens, prompt.length, 0);
         // 4. decoder loop with KV cache
@@ -479,6 +499,7 @@ public class VoxtralEngine {
         OrtSession.Result prevResult = null;
         try {
             for (int step = 0; step < maxNewTokens; step++) {
+                if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
                 int seqLen = curEmbeds.length;
                 long tensorPrepStart = System.nanoTime();
                 long[] attn = new long[curLen + seqLen];
