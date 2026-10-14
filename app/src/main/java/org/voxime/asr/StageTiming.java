@@ -1,12 +1,7 @@
 package org.voxime.asr;
 
-import android.os.SystemClock;
 import android.util.Log;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -38,7 +33,7 @@ public final class StageTiming {
     public static final String PREFILL_TOTAL = "prefill_total";
     public static final String DECODE_TOTAL = "decode_total";
 
-    private final long startNanos = SystemClock.elapsedRealtimeNanos();
+    private final long startNanos = System.nanoTime();
     private final Map<String, Long> phases = new TreeMap<>();
     private long decodeRunNanos = 0;
     private int decodeRunCount = 0;
@@ -54,7 +49,7 @@ public final class StageTiming {
     private int numOutputTokens = -1;
 
     private static long now() {
-        return SystemClock.elapsedRealtimeNanos();
+        return System.nanoTime();
     }
 
     public void addPhase(String key, long fromNanos) {
@@ -111,42 +106,46 @@ public final class StageTiming {
 
     /** Single-line JSON summary for the log; one logcat + one file line per dictation. */
     public String summaryJson() {
-        JSONObject root = new JSONObject();
-        try {
-            root.put("v", VERSION);
-            long end = now();
-            root.put("total_nanos", end - startNanos);
-            JSONObject p = new JSONObject();
-            for (Map.Entry<String, Long> e : phases.entrySet()) {
-                p.put(e.getKey(), e.getValue());
-            }
-            if (decodeRunCount > 0) {
-                p.put(DECODE_TOTAL, decodeRunNanos);
-                p.put("decode_run_per_step_nanos", decodeRunNanos / Math.max(1, decodeRunCount));
-            }
-            if (embedRunCount > 0) {
-                p.put("embed_run_total_nanos", embedRunNanos);
-                p.put("embed_run_per_step_nanos", embedRunNanos / Math.max(1, embedRunCount));
-            }
-            if (tensorPrepNanos > 0) p.put("tensor_prep_nanos", tensorPrepNanos);
-            if (logitsEvalNanos > 0) p.put("logits_eval_nanos", logitsEvalNanos);
-            root.put("phases", p);
-            JSONObject counts = new JSONObject();
-            counts.put("decode_steps", lastStep + 1);
-            counts.put("decode_runs", decodeRunCount);
-            counts.put("embed_runs", embedRunCount);
-            counts.put("audio_tokens", numAudioTokens);
-            counts.put("prompt_tokens", numPromptTokens);
-            counts.put("output_tokens", numOutputTokens);
-            root.put("counts", counts);
-            root.put("stop_reason", stopReason);
-            if (firstTokenNanos >= 0) root.put("first_token_nanos", firstTokenNanos - startNanos);
-            root.put("per_token_nanos",
-                    (numOutputTokens > 0 && decodeRunNanos > 0)
-                            ? decodeRunNanos / numOutputTokens : 0);
-        } catch (Exception ignored) {
+        StringBuilder sb = new StringBuilder(512);
+        sb.append("{\"v\":").append(VERSION);
+        sb.append(",\"total_nanos\":").append(now() - startNanos);
+        sb.append(",\"phases\":{");
+        boolean first = true;
+        for (Map.Entry<String, Long> e : phases.entrySet()) {
+            if (!first) sb.append(',');
+            first = false;
+            sb.append('"').append(e.getKey()).append("\":").append(e.getValue().toString());
         }
-        return root.toString();
+        if (decodeRunCount > 0) {
+            if (!first) sb.append(',');
+            sb.append('"').append(DECODE_TOTAL).append("\":").append(decodeRunNanos);
+            sb.append(",\"decode_run_per_step_nanos\":").append(decodeRunNanos / Math.max(1, decodeRunCount));
+        }
+        if (embedRunCount > 0) {
+            if (!first) sb.append(',');
+            sb.append("\"embed_run_total_nanos\":").append(embedRunNanos);
+            sb.append(",\"embed_run_per_step_nanos\":").append(embedRunNanos / Math.max(1, embedRunCount));
+        }
+        if (tensorPrepNanos > 0) {
+            if (!first) sb.append(',');
+            sb.append("\"tensor_prep_nanos\":").append(tensorPrepNanos);
+        }
+        if (logitsEvalNanos > 0) {
+            if (!first) sb.append(',');
+            sb.append("\"logits_eval_nanos\":").append(logitsEvalNanos);
+        }
+        sb.append("},\"counts\":{\"decode_steps\":").append(lastStep + 1);
+        sb.append(",\"decode_runs\":").append(decodeRunCount);
+        sb.append(",\"embed_runs\":").append(embedRunCount);
+        sb.append(",\"audio_tokens\":").append(numAudioTokens);
+        sb.append(",\"prompt_tokens\":").append(numPromptTokens);
+        sb.append(",\"output_tokens\":").append(numOutputTokens);
+        sb.append("},\"stop_reason\":\"").append(stopReason).append('\"');
+        if (firstTokenNanos >= 0) sb.append(",\"first_token_nanos\":").append(firstTokenNanos - startNanos);
+        sb.append(",\"per_token_nanos\":").append(
+                (numOutputTokens > 0 && decodeRunNanos > 0) ? decodeRunNanos / numOutputTokens : 0);
+        sb.append('}');
+        return sb.toString();
     }
 
     public void logSummary(String where) {

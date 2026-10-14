@@ -1,55 +1,95 @@
 package org.voxime.asr;
 
-import android.util.Log;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.util.Iterator;
-
 /**
- * Parses the single-line JSON summaries emitted by StageTiming so that
- * unit tests and tooling can assert on phase keys without duplicating
- * the format. Not used by the production pipeline itself.
+ * Minimal reader for the single-line JSON summaries emitted by StageTiming,
+ * so unit tests and tooling can assert on phase keys without duplicating the
+ * format and without org.json (whose Android stub returns nulls in unit
+ * tests). Not used by the production pipeline itself.
  */
 public final class StageTimingReport {
-    public final JSONObject root;
+    private final String json;
 
-    private StageTimingReport(JSONObject root) {
-        this.root = root;
+    private StageTimingReport(String json) {
+        this.json = json;
     }
 
-    public static StageTimingReport parse(String json) throws org.json.JSONException {
-        return new StageTimingReport(new JSONObject(json));
+    public static StageTimingReport parse(String json) {
+        return new StageTimingReport(json);
     }
 
-    public long phaseNanos(String key) throws org.json.JSONException {
-        return root.getJSONObject("phases").optLong(key, -1);
+    private String objectAt(String key) {
+        int i = json.indexOf("\"" + key + "\":{");
+        if (i < 0) return null;
+        int start = i + key.length() + 3;
+        int depth = 1;
+        int j = start;
+        while (j < json.length() && depth > 0) {
+            char c = json.charAt(j);
+            if (c == '{') depth++;
+            if (c == '}') depth--;
+            j++;
+        }
+        return json.substring(start, j - 1);
     }
 
-    public long totalNanos() throws org.json.JSONException {
-        return root.getLong("total_nanos");
+    private long longAt(String object, String key) {
+        if (object == null) return -1;
+        int i = object.indexOf("\"" + key + "\":");
+        if (i < 0) return -1;
+        int j = i + key.length() + 3;
+        int end = j;
+        while (end < object.length()) {
+            char c = object.charAt(end);
+            if (c == ',' || c == '}') break;
+            end++;
+        }
+        try {
+            return Long.parseLong(object.substring(j, end).trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
-    public long firstTokenNanos() throws org.json.JSONException {
-        return root.optLong("first_token_nanos", -1);
+    public long phaseNanos(String key) {
+        return longAt(objectAt("phases"), key);
     }
 
-    public int count(String key) throws org.json.JSONException {
-        return root.getJSONObject("counts").optInt(key, -1);
+    public long totalNanos() {
+        return longAt(json, "total_nanos");
     }
 
-    public String stopReason() throws org.json.JSONException {
-        return root.getString("stop_reason");
+    public long firstTokenNanos() {
+        return longAt(json, "first_token_nanos");
     }
 
-    public boolean hasAllPhases(String... keys) throws org.json.JSONException {
-        JSONObject p = root.getJSONObject("phases");
-        for (String k : keys) if (!p.has(k)) return false;
+    public int count(String key) {
+        return (int) longAt(objectAt("counts"), key);
+    }
+
+    public String stopReason() {
+        int i = json.indexOf("\"stop_reason\":\"");
+        if (i < 0) return null;
+        int start = i + "\"stop_reason\":\"".length();
+        int end = json.indexOf('\"', start);
+        return end > start ? json.substring(start, end) : null;
+    }
+
+    public boolean hasAllPhases(String... keys) {
+        String phases = objectAt("phases");
+        if (phases == null) return false;
+        for (String k : keys) {
+            if (!phases.contains("\"" + k + "\":")) return false;
+        }
         return true;
     }
 
-    public int numPhases() throws org.json.JSONException {
-        return root.getJSONObject("phases").length();
+    public int numPhases() {
+        String phases = objectAt("phases");
+        if (phases == null) return 0;
+        int count = 0;
+        for (int i = 0; i < phases.length(); i++) {
+            if (phases.charAt(i) == ',') count++;
+        }
+        return count + 1;
     }
 }

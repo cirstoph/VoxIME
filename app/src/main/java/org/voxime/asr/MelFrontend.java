@@ -90,7 +90,8 @@ final class MelFrontend {
         // first frame whose whole window lies beyond real audio -> exactly zero power
         int firstZeroFrame = Integer.MAX_VALUE;
         if (realSamples < audio.length) {
-            firstZeroFrame = Math.max(0, (realSamples - FFT_N + HOP - 1) / HOP);
+            // window of frame f starts at f*HOP; fully beyond real audio iff f*HOP >= realSamples
+            firstZeroFrame = Math.max(0, (realSamples + HOP - 1) / HOP);
         }
         double[][] melOut = new double[NUM_FRAMES][NUM_MELS];
         double[] re = new double[FFT_N];
