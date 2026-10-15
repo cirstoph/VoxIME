@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fitsSystemWindows="true">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/recognizer_background"
+        android:layout_gravity="bottom"
+        android:padding="5dp">
+
+        <ProgressBar
+            android:id="@+id/processing_bar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="false"
+            android:progressTint="@color/colorAccent"
+            android:progressBackgroundTint="@color/lightGrey"
+            android:indeterminateTint="@color/colorAccent"
+            style="?android:attr/progressBarStyleHorizontal"/>
+
+        <RelativeLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="5dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvLang"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_toEndOf="@id/btnCancel"
+                android:layout_marginStart="10dp"
+                android:textColor="#FFFFFF"
+                android:textSize="24dp"
+                android:text="auto"/>
+            <ImageButton
+                android:id="@+id/btnCancel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:background="@color/darkGrey"
+                android:src="@drawable/ic_cancel_36dp"
+                android:contentDescription="@string/exit_button"/>
+
+            <ImageButton
+                android:id="@+id/btnStop"
+                android:visibility="gone"
+                android:layout_centerHorizontal="true"
+                android:layout_marginHorizontal="5dp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@color/darkGrey"
+                android:src="@drawable/ic_stop_recording_36dp"
+                android:contentDescription="@string/stop_button"/>
+
+            <ImageButton
+                android:id="@+id/btnModeAuto"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:background="@color/darkGrey"
+                android:src="@drawable/ic_auto_off_36dp"
+                android:contentDescription="@string/auto_button"/>
+
+        </RelativeLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:layout_gravity="center_horizontal"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnRecord"
+                android:layout_width="96dp"
+                android:layout_height="wrap_content"
+                android:layout_margin="3dp"
+                android:layout_weight="1"
+                android:background="@drawable/rounded_button_background"
+                android:src="@drawable/ic_mic_48dp"
+                android:contentDescription="@string/record_button"/>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
