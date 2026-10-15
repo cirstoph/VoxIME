@@ -52,11 +52,16 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.4, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.4-arm64.apk](apks/VoxIME-0.5.4-arm64.apk) (42,7 MB, Debug-Signatur). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
+Aktuelle APK (0.5.5, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.5-arm64.apk](apks/VoxIME-0.5.5-arm64.apk) (42,7 MB, Debug-Signatur). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
 ## Changelog
+
+### 0.5.5 (2026-10-15)
+- **Messdaten-basierter Fix:** Erste StageTiming-Messung zeigte 78 % der Wartezeit im Encoder (26,1 s von 33,7 s bei 4 s Audio), weil er bei kurzen Aufnahmen das volle 30-s-Fenster verrechnet. Instrumentierungsfehler behoben (negatives pcm_convert durch gemischte Zeitquellen).
+- **Variable Encoder-Länge (Experiment, standardmäßig aus):** `tools/patch_encoder_varlen.py` erzeugt aus dem vorhandenen Modell einen Encoder mit dynamischer Zeitachse (Gewichte/Dateien unverändert). In den Einstellungen aktivierbar („Fast encoder (experimental)“), sobald die gepatchte Datei `audio_encoder_var_q4f16.onnx` neben dem Modell liegt. Referenzmessung: 5,5 s → 0,7 s Encoder-Zeit für 4 s Audio. Hinweis: die Encoder-Attention ist nicht kausal — die Features unterscheiden sich leicht vom Vollfenster; A/B-Transkriptionsvergleich auf dem Gerät empfohlen (Details: `docs/performance-0.5.4.md`).
+- Unit-Tests: Mel-Präfix-Eigenschaft der variablen Frame-Zahl gesichert.
 
 ### 0.5.4 (2026-10-14)
 - **Performance:** Mel-Frontend mit echter 400-Punkt-FFT statt direkter DFT (vorher ~241 Mio. innere Schleifendurchläufe pro Diktat, unabhängig von der Audiolänge); Hann-Fenster/Mel-Filterbank statisch vorberechnet; Frames vollständig hinter dem realen Audio werden analytisch als Nullleistung behandelt. Gegenüber der alten Implementierung numerisch identisch (Unit-Test gegen die DFT-Referenz).

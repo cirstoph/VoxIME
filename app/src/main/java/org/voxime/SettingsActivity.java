@@ -159,6 +159,13 @@ public class SettingsActivity extends AppCompatActivity {
             editor.apply();
         });
 
+        CheckBox modeVarLen = findViewById(R.id.mode_varlen);
+        modeVarLen.setChecked(sp.getBoolean("encoderVarLen", false));
+        modeVarLen.setOnCheckedChangeListener((compoundButton, isChecked) -> {
+            SharedPreferences.Editor editor = sp.edit();
+            editor.putBoolean("encoderVarLen", isChecked);
+            editor.apply();
+        });
         modeBluetooth = findViewById(R.id.mode_bluetooth);
         modeBluetooth.setChecked(sp.getBoolean("bluetooth",false));
         modeBluetooth.setOnCheckedChangeListener((compoundButton, isChecked) -> {

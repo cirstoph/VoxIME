@@ -78,14 +78,39 @@ final class MelFrontend {
      * Same output as the previous implementation, computed via FFT.
      */
     static float[][] compute(float[] samples) {
+        return compute(samples, NUM_FRAMES);
+    }
+
+    /** Returns at most length samples in a fresh array (helper for variable windows). */
+    static float[] subBuffer(float[] samples, int length) {
+        int n = Math.min(length, samples.length);
+        float[] a = new float[n];
+        System.arraycopy(samples, 0, a, 0, n);
+        return a;
+    }
+
+    /**
+     * Variable-length variant for the patched encoder graph: computes exactly
+     * nFrames frames (must be a multiple of 8, one audio token covers 8 frames),
+     * padding the input with zeros beyond the real samples as before. The same
+     * global log-max clipping is applied over the produced frames only; the
+     * fixed 3000-frame semantics are untouched in the default path.
+     */
+    static float[][] compute(float[] samples, int nFrames) {
+        if (nFrames <= 0 || nFrames > NUM_FRAMES) throw new IllegalArgumentException("nFrames=" + nFrames);
+        final int nFramesOut = nFrames;
+        // Semantics of the original implementation: the input buffer is padded or
+        // TRUNCATED to exactly TARGET_SAMPLES; the frame count then follows from
+        // the buffer (3000 frames at full length). Only the requested nFrames are
+        // computed; frames beyond nFrames stay zero-power like in the original.
         float[] audio = samples;
         if (audio.length != TARGET_SAMPLES) {
             float[] a = new float[TARGET_SAMPLES];
             System.arraycopy(samples, 0, a, 0, Math.min(samples.length, TARGET_SAMPLES));
             audio = a;
         }
-        int nFrames = 1 + (audio.length - FFT_N) / HOP;
-        if (nFrames > NUM_FRAMES) nFrames = NUM_FRAMES;
+        int maxFrames = 1 + (audio.length - FFT_N) / HOP;
+        if (nFrames > maxFrames) nFrames = maxFrames;
         int realSamples = Math.min(samples.length, TARGET_SAMPLES);
         // first frame whose whole window lies beyond real audio -> exactly zero power
         int firstZeroFrame = Integer.MAX_VALUE;
@@ -113,7 +138,8 @@ final class MelFrontend {
                 melOut[f][m] = sum;
             }
         }
-        // global log + clip + normalize over ALL 3000 frames (semantics preserved)
+        // global log + clip + normalize over ALL 3000 frames (semantics preserved:
+        // frames beyond nFrames stay zero-power and flow through the same path)
         double maxLog = -Double.MAX_VALUE;
         double[][] logSpec = new double[NUM_FRAMES][NUM_MELS];
         for (int f = 0; f < NUM_FRAMES; f++) {
@@ -123,8 +149,8 @@ final class MelFrontend {
                 if (v > maxLog) maxLog = v;
             }
         }
-        float[][] out = new float[NUM_MELS][NUM_FRAMES];
-        for (int f = 0; f < NUM_FRAMES; f++) {
+        float[][] out = new float[NUM_MELS][nFramesOut];
+        for (int f = 0; f < nFramesOut; f++) {
             for (int m = 0; m < NUM_MELS; m++) {
                 double v = Math.max(logSpec[f][m], maxLog - 8.0);
                 out[m][f] = (float) ((v + 4.0) / 4.0);

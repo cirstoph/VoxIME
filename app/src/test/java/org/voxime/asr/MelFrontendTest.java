@@ -153,6 +153,27 @@ public class MelFrontendTest {
     }
 
     @Test
+    public void variableFrameCountMatchesFullComputation() {
+        // The variable-length path must produce the same values as the default
+        // path for the frames it computes (prefix property); extra frames are
+        // zero-power like in the reference.
+        Random r = new Random(21);
+        float[] s = new float[16000];
+        for (int i = 0; i < s.length; i++) s[i] = (float) r.nextGaussian();
+        float[][] full = MelFrontend.compute(s);
+        for (int nf : new int[]{8, 64, 104}) {   // multiples of 8 (audio-token grid)
+            float[][] var = MelFrontend.compute(s, nf);
+            assertEquals(nf, var[0].length);
+            for (int m = 0; m < 128; m++) {
+                for (int f = 0; f < nf; f++) {
+                    assertEquals("nf=" + nf + " m=" + m + " f=" + f,
+                            full[m][f], var[m][f], 0.0f);
+                }
+            }
+        }
+    }
+
+    @Test
     public void parityBoundaryLengths() {
         // lengths around the zero-frame boundary (frame = 400, hop = 160)
         assertParity(new float[400], 1e-5);

@@ -135,8 +135,12 @@ public class Voxime {
         mState = ModelState.LOADING;
         sendUpdate(MSG_LOADING);
         startWorkerIfNeeded();
+        final boolean varLenPref = mContext.getSharedPreferences(
+                mContext.getPackageName() + "_preferences", android.content.Context.MODE_PRIVATE)
+                .getBoolean("encoderVarLen", false);
         mLoaderThread = new Thread(() -> {
             VoxtralEngine engine = new VoxtralEngine(mContext);
+            engine.setEncoderVarLenPref(varLenPref);
             engine.setLoadProgressListener(message -> sendUpdate(message));
             try {
                 engine.loadModel();
@@ -313,7 +317,7 @@ public class Voxime {
                 sendUpdate("Engine not initialized or file path not set");
                 return;
             }
-            long pcmStart = android.os.SystemClock.elapsedRealtimeNanos();
+            long pcmStart = System.nanoTime();
             float[] samples = RecordBuffer.getSamples();
             timing.addPhase(StageTiming.PCM_CONVERT, pcmStart);
             if (samples == null) {

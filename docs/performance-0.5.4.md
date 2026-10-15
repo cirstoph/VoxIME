@@ -37,11 +37,52 @@ Tensor-Prep, Logits-Auswertung, Zeit bis zum ersten Token, Token-Zählungen,
 Abbruchgrund, Gesamtlatenz. Damit sind alle geforderten Messungen auf dem
 Gerät ohne erneuten Codeumbau möglich.
 
-## Nicht implementiert / nur vorgeschlagen (Gerätemessung erforderlich)
+## Geräte-Messung 2026-10-15 (8 Kern-Android, 8-core SoC, 7 Inferenz-Threads)
 
-- **Variable Encoder-Länge** ([1,128,3000] auch bei kurzen Aufnahmen): Graph-
-  und Exportprüfung nicht ohne die Modelldateien möglich; separates Experiment
-  mit fixierter Modellrevision nötig (siehe Abschnitt 6 des Auftrags).
+Erste StageTiming-Messung nach Aufnahmeende (4 s Audio, 59 Audio-Tokens, lang=auto):
+
+| Phase | Zeit |
+|---|---|
+| encoder_run | **26.100 ms (78 %)** |
+| decode_total (11 Tokens) | 3.099 ms (~282 ms/Token) |
+| mel (FFT) | 1.479 ms |
+| prefill_run | 2.207 ms |
+| logits_eval / tensor_prep / embed | < 0,7 s zusammen |
+| Gesamt | 33.663 ms |
+
+Fehler in der Instrumentierung behoben: `pcm_convert` war negativ (gemischte
+Zeitquellen SystemClock vs nanoTime); jetzt einheitlich System.nanoTime().
+
+**Ergebnis:** Der Encoder dominiert, weil er bei kurzen Aufnahmen weiterhin das
+volle 30-s-Fenster verrechnet. Decoder (q4) ist mit ~0,28 s/Token zweitrangig.
+
+## Variable Encoder-Länge: implementiert als Experiment (default aus)
+
+Analyse des Original-Graphen (HF-Revision, SHA-256 s. Skript): 3000 ist hart
+kodiert in (1) der Input-Deklaration, (2) 128 Reshape-Shape-Konstanten mit der
+Conv-Frame-Zahl 1500, (3) dem Positions-Embedding-Add [1500,1280]. Gewichte und
+externe Datendatei bleiben byte-identisch.
+
+- `tools/patch_encoder_varlen.py`: reproduzierbarer Graph-Patch mit
+  SHA-256-Prüfung des Quell-Graphen (Erzeugt `audio_encoder_var_q4f16.onnx`,
+  nutzt die vorhandene `.onnx_data` unverändert weiter).
+- Engine: lädt den gepatchten Encoder nur, wenn er + Data-Datei vorhanden sind
+  UND die Einstellung „Fast encoder (experimental)" aktiv ist; sonst exakt das
+  bisherige Verhalten. Mel wird auf ein 8er-Frame-Raster begrenzt (1 Audio-Token
+  = 8 Frames); Audio-Token-Zahl wird aus der tatsächlichen Encoder-Ausgabe
+  abgeleitet; Scatter-Konsistenzprüfung bleibt.
+- Verifikation (onnxruntime 1.31, x86): Output-Shape korrekt (59 Tokens bei 4 s),
+  Laufzeit 5,5 s -> 0,7 s für dieses Beispiel — auf dem Zielgerät nachmessen.
+- **Bekannte semantische Differenz:** Die Encoder-Attention ist NICHT kausal.
+  Im Kurzfenster sieht jedes Token nur das reale Audio statt des
+  Null-gepaddeten 30-s-Fensters; Feature-Werte unterscheiden sich daher (max.
+  Absolutdifferenz ~1,5 auf Zufalls-Signal). Transkriptionsqualität muss per
+  A/B-Vergleich auf dem Zielgerät geprüft werden, bevor der Schalter dauerhaft
+  aktiviert wird. Mel-Präfix-Eigenschaft per Unit-Test gesichert.
+
+Weitere vorgeschlagene Punkte entfallen hier; für Threadzahl-Experimente und
+Embedding-Cache gilt weiterhin: erst messen (README dokumentiert negative
+Erfahrung mit XNNPACK/Thread-Cap auf dem Gerät).
 - **Threadzahl-Experimente** (Encoder/Decoder getrennt, 1/2/4/aktuell): README
   dokumentiert, dass XNNPACK + Encoder-Thread-Cap auf dem Gerät langsamer waren
   (0.4.1/0.5.1). Keine neue Hypothese ohne Messung wiederholt.

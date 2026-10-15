@@ -49,6 +49,21 @@ public class VoxtralEngine {
     private final Context context;
     private OrtEnvironment env;
     private OrtSession encoderSession;
+    /** True when the loaded encoder graph accepts a variable time axis (experiment). */
+    private volatile boolean encoderVarLen = false;
+    /** Preference: use the variable-length encoder when its files exist. */
+    private volatile boolean encoderVarLenPref = false;
+    /** Patched encoder graph (see tools/patch_encoder_varlen.py), data shared with the original. */
+    public static final String VAR_ENCODER_FILE = "audio_encoder_var_q4f16.onnx";
+    public static final String VAR_ENCODER_DATA_FILE = "audio_encoder_var_q4f16.onnx_data";
+
+    public void setEncoderVarLenPref(boolean enabled) {
+        this.encoderVarLenPref = enabled;
+    }
+
+    public boolean isEncoderVarLen() {
+        return encoderVarLen;
+    }
     private OrtSession embedSession;
     private OrtSession decoderSession;
 
@@ -104,9 +119,20 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
         enc.setIntraOpNumThreads(threads);
+        File varEncoder = new File(dir, VAR_ENCODER_FILE);
+        File varEncoderData = new File(dir, VAR_ENCODER_DATA_FILE);
+        boolean useVarLen = encoderVarLenPref
+                && varEncoder.isFile() && varEncoderData.isFile()
+                && varEncoderData.length() == 383696896L;
+        AppLog.i(context, TAG, useVarLen
+                ? "variable-length encoder available, using " + VAR_ENCODER_FILE
+                : "using fixed 30 s encoder window (variable-length "
+                    + (encoderVarLenPref ? "files missing" : "disabled by setting") + ")");
         loadProgress("Loading encoder (384 MB)...");
         long t = System.currentTimeMillis();
-        encoderSession = env.createSession(new File(dir, "audio_encoder_q4f16.onnx").getAbsolutePath(), enc);
+        encoderSession = env.createSession(
+                (useVarLen ? varEncoder : new File(dir, "audio_encoder_q4f16.onnx")).getAbsolutePath(), enc);
+        this.encoderVarLen = useVarLen;
         loadProgress("Encoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
         if (timing != null) timing.addNanos(StageTiming.LOAD_ENCODER_SESSION, (System.currentTimeMillis() - t) * 1000000L);
         closeQuietly(enc);
@@ -315,14 +341,25 @@ public class VoxtralEngine {
         if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
         long t0 = System.nanoTime();
         // 1. mel
-        float[][] mel = melSpectrogram(padded);
+        // Variable-length experiment: the patched encoder (audio_encoder_var_q4f16.onnx)
+        // processes only the real audio instead of the full 30 s window. The number of
+        // mel frames must be a multiple of 8 (one audio token covers 8 frames).
+        float[][] mel;
+        int melFrames;
+        if (encoderVarLen) {
+            melFrames = Math.min(3000, ((padded.length + 159) / 160 + 7) & ~7);
+            mel = MelFrontend.compute(MelFrontend.subBuffer(padded, (melFrames - 1) * 160 + 400), melFrames);
+        } else {
+            mel = melSpectrogram(padded);
+        }
         timing.addPhase(StageTiming.MEL, t0);
         if (listener != null) listener.onUpdate("Mel done");
 
         // 2. encoder
-        long[] melShape = {1, 128, 3000};
-        float[] flatMel = new float[128 * 3000];
-        for (int m = 0; m < 128; m++) System.arraycopy(mel[m], 0, flatMel, m * 3000, 3000);
+        melFrames = mel[0].length;
+        long[] melShape = {1, 128, melFrames};
+        float[] flatMel = new float[128 * melFrames];
+        for (int m = 0; m < 128; m++) System.arraycopy(mel[m], 0, flatMel, m * melFrames, melFrames);
         float[] audioFeatures;
         long encRunStart = System.nanoTime();
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(flatMel), melShape)) {
@@ -341,7 +378,11 @@ public class VoxtralEngine {
         if (cancelled.getAsBoolean()) throw new TranscriptionCancelledException();
         if (listener != null) listener.onUpdate("Encoder done");
 
-        int numAudioTokens = Math.max(1, Math.min(NUM_AUDIO_TOKENS, (padded.length + 1279) / 1280));
+        int numAudioTokens = encoderVarLen
+                ? audioFeatures.length / HIDDEN
+                : Math.max(1, Math.min(NUM_AUDIO_TOKENS, (padded.length + 1279) / 1280));
+        if (numAudioTokens < 1 || numAudioTokens > NUM_AUDIO_TOKENS)
+            throw new IllegalStateException("unexpected audio token count: " + numAudioTokens);
         AppLog.i(context, TAG, "audio tokens for prefill: " + numAudioTokens + " (" + samples.length + " samples + silence margin)");
         timing.setTokenCounts(numAudioTokens, -1, 0);
         long[] prompt = buildPrompt(langCode, numAudioTokens);
