@@ -51,15 +51,23 @@ def patch(src_onnx, dst_onnx, data_name):
     d[2].dim_param = 'time'
     d[2].ClearField('dim_value')
 
-    # runtime frame count from the transposed conv output [1, frames, 1280]
-    nodes = list(g.node)
-    g.ClearField('node')
-    g.node.extend([onnx.helper.make_node('Shape', inputs=['/audio_tower/Transpose_output_0'],
-                                         outputs=['/var/frames_shape'])])
+    # runtime frame count from the transposed conv output [1, frames, 1280].
+    # Insert Shape+Gather directly AFTER the Transpose that produces the input,
+    # so the node list stays topologically sorted (ORT is lenient, but strict
+    # runtimes and graph checkers are not).
     g.initializer.append(onnx.helper.make_tensor('/var/idx1', TensorProto.INT64, [1], [1]))
-    g.node.extend([onnx.helper.make_node('Gather', inputs=['/var/frames_shape', '/var/idx1'],
-                                         outputs=['/var/frames'], axis=0)])
-    g.node.extend(nodes)
+    shape_node = onnx.helper.make_node('Shape', inputs=['/audio_tower/Transpose_output_0'],
+                                       outputs=['/var/frames_shape'], name='/var/frames_shape_node')
+    gather_node = onnx.helper.make_node('Gather', inputs=['/var/frames_shape', '/var/idx1'],
+                                        outputs=['/var/frames'], axis=0, name='/var/frames_gather')
+    final = []
+    for n in g.node:
+        final.append(n)
+        if n.output and n.output[0] == '/audio_tower/Transpose_output_0':
+            final.append(shape_node)
+            final.append(gather_node)
+    g.ClearField('node')
+    g.node.extend(final)
 
     # Reshape shape constants with the hardcoded 1500 -> dynamic frames
     inits = {i.name: i for i in g.initializer}

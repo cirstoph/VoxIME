@@ -212,6 +212,10 @@ public class VoximeRecognitionService extends RecognitionService {
                 toast.show();
             });
             mVoxime.setAction(ACTION_TRANSCRIBE);
+            // Reload the engine when a load-time setting changed (e.g. the
+            // variable-length encoder preference); loadModel() is a no-op when
+            // the engine is already loaded.
+            if (mVoxime.getState() == Voxime.ModelState.MISSING) mVoxime.loadModel();
             mVoxime.start();
             Log.d(TAG,"Start Transcription");
         }

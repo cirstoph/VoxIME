@@ -70,7 +70,11 @@ externe Datendatei bleiben byte-identisch.
   UND die Einstellung „Fast encoder (experimental)" aktiv ist; sonst exakt das
   bisherige Verhalten. Mel wird auf ein 8er-Frame-Raster begrenzt (1 Audio-Token
   = 8 Frames); Audio-Token-Zahl wird aus der tatsächlichen Encoder-Ausgabe
-  abgeleitet; Scatter-Konsistenzprüfung bleibt.
+  abgeleitet; Scatter-Konsistenzprüfung bleibt. Die Einstellung wirkt sofort:
+  Beim Umschalten wird die residente Engine entladen (`Voxime.unloadAllShared()`),
+  das nächste Diktat lädt mit der neuen Konfiguration (kein App-Neustart nötig).
+  Log-Zeile beim Laden: „variable-length encoder available" vs. „fixed 30 s
+  encoder window".
 - Verifikation (onnxruntime 1.31, x86): Output-Shape korrekt (59 Tokens bei 4 s),
   Laufzeit 5,5 s -> 0,7 s für dieses Beispiel — auf dem Zielgerät nachmessen.
 - **Bekannte semantische Differenz:** Die Encoder-Attention ist NICHT kausal.
