@@ -165,6 +165,9 @@ public class SettingsActivity extends AppCompatActivity {
             SharedPreferences.Editor editor = sp.edit();
             editor.putBoolean("encoderVarLen", isChecked);
             editor.apply();
+            // The preference is read once at engine load; drop the resident
+            // engine so the next dictation loads with the new setting.
+            org.voxime.asr.Voxime.unloadAllShared();
         });
         modeBluetooth = findViewById(R.id.mode_bluetooth);
         modeBluetooth.setChecked(sp.getBoolean("bluetooth",false));

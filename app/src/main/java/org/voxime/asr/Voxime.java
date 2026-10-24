@@ -50,6 +50,19 @@ public class Voxime {
         if (n <= 1) REFCOUNTS.remove(owner); else REFCOUNTS.put(owner, n - 1);
     }
 
+    /**
+     * Unloads the engine in every registered Voxime and clears the registry,
+     * so the next getShared()/loadModel() starts from a clean state. Used when
+     * a setting changes that is only read at engine load time (e.g. the
+     * variable-length encoder preference) - without this the resident engine
+     * would keep the old configuration until process death.
+     */
+    public static synchronized void unloadAllShared() {
+        for (Voxime v : SHARED.values()) v.unloadModel();
+        SHARED.clear();
+        REFCOUNTS.clear();
+    }
+
     /** True when the underlying engine is ready (tests/diagnostics). */
     public static synchronized boolean hasSharedEngine() {
         return !SHARED.isEmpty();

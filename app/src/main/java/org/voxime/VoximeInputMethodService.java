@@ -371,6 +371,10 @@ public class VoximeInputMethodService extends InputMethodService {
             String langCode = sp.getString("language", "auto");
             Log.d("VoximeIME","default langCode " + langCode);
             mVoxime.setLanguage(langCode);
+            // Reload the engine when a load-time setting changed (e.g. the
+            // variable-length encoder preference); loadModel() is a no-op
+            // when the engine is already loaded with the current settings.
+            if (mVoxime.getState() == Voxime.ModelState.MISSING) mVoxime.loadModel();
             mVoxime.start();
         }
     }

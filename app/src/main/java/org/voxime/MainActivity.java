@@ -428,6 +428,10 @@ public class MainActivity extends AppCompatActivity {
         mVoxime.setAction(action);
         String langCode = sp.getString("language", "auto");
         mVoxime.setLanguage(langCode);
+        // Reload the engine when a load-time setting changed (e.g. the
+        // variable-length encoder preference); loadModel() is a no-op when
+        // the engine is already loaded.
+        if (mVoxime.getState() == Voxime.ModelState.MISSING) mVoxime.loadModel();
         mVoxime.start();
     }
 
