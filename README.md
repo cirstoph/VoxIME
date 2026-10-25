@@ -52,14 +52,18 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.5, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.5-arm64.apk](apks/VoxIME-0.5.5-arm64.apk) (42,7 MB, Debug-Signatur). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
+Aktuelle APK (0.5.6, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.6-arm64.apk](apks/VoxIME-0.5.6-arm64.apk) (42,7 MB, Debug-Signatur). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
 ## Changelog
 
+### 0.5.6 (2026-10-25)
+- **Kritischer Crash-Fix:** Manifest-Komponenten auf `.Voxime*` korrigiert (vorher `.Whisper*` — Klassen existieren seit 0.2.0 nicht mehr). Voice-Input über AOSP-Tastatur, IME-Auswahl und RecognitionService crashen nicht mehr mit `ClassNotFoundException`. **Alle APKs bis 0.5.5 sind betroffen — bitte 0.5.6 installieren.**
+- Enthält außerdem die 0.5.5-Fixes (StageTiming-Uhren-Bug, varlen-Encoder-Experiment, Settings-Schalter sichtbar + sofort wirksam).
+
 ### 0.5.5 (2026-10-15)
-- **Crash-Fix (kritisch):** Manifest verwies noch auf die bei der Umbenennung 0.2.0 nicht aktualisierten Klassennamen `.WhisperRecognizeActivity` / `.WhisperInputMethodService` / `.WhisperRecognitionService` — diese Klassen existieren nicht mehr im DEX. Folge: Voice-Input über die AOSP-Tastatur (Mikrofon-Symbol → `ACTION_RECOGNIZE_SPEECH`) und die IME-Auswahl stürzten mit `ClassNotFoundException` ab. Manifest auf `.Voxime*` korrigiert. **Betroffene APKs: alle bisherigen Releases (0.1.x–0.5.5) — bitte 0.5.5+ neu installieren.**
+- **Crash-Fix (kritisch):** Manifest verwies noch auf die bei der Umbenennung 0.2.0 nicht aktualisierten Klassennamen `.WhisperRecognizeActivity` / `.WhisperInputMethodService` / `.WhisperRecognitionService` — diese Klassen existieren nicht mehr im DEX. Folge: Voice-Input über die AOSP-Tastatur (Mikrofon-Symbol → `ACTION_RECOGNIZE_SPEECH`) und die IME-Auswahl stürzten mit `ClassNotFoundException` ab. Manifest auf `.Voxime*` korrigiert. **Betroffene APKs: alle bisherigen Releases (0.1.x–0.5.5) — bitte 0.5.6 neu installieren.**
 - **Messdaten-basierter Fix:** Erste StageTiming-Messung zeigte 78 % der Wartezeit im Encoder (26,1 s von 33,7 s bei 4 s Audio), weil er bei kurzen Aufnahmen das volle 30-s-Fenster verrechnet. Instrumentierungsfehler behoben (negatives pcm_convert durch gemischte Zeitquellen).
 - **Variable Encoder-Länge (Experiment, standardmäßig aus):** `tools/patch_encoder_varlen.py` erzeugt aus dem vorhandenen Modell einen Encoder mit dynamischer Zeitachse (Gewichte/Dateien unverändert). In den Einstellungen aktivierbar („Fast encoder (experimental)“), sobald die gepatchte Datei `audio_encoder_var_q4f16.onnx` neben dem Modell liegt; wirkt sofort ohne Neustart (Engine wird beim Umschalten neu geladen). Referenzmessung: 5,5 s → 0,7 s Encoder-Zeit für 4 s Audio. Hinweis: die Encoder-Attention ist nicht kausal — die Features unterscheiden sich leicht vom Vollfenster; A/B-Transkriptionsvergleich auf dem Gerät empfohlen (Details: `docs/performance-0.5.4.md`).
 - Unit-Tests: Mel-Präfix-Eigenschaft der variablen Frame-Zahl gesichert; CI führt `testDebugUnitTest` aus.
