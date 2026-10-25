@@ -55,7 +55,7 @@
         </activity>
 
         <activity
-            android:name=".WhisperRecognizeActivity"
+            android:name=".VoximeRecognizeActivity"
             android:exported="true"
             android:clearTaskOnLaunch="true"
             android:launchMode="standard"
@@ -70,7 +70,7 @@
         </activity>
 
         <service
-            android:name=".WhisperInputMethodService"
+            android:name=".VoximeInputMethodService"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true"
             android:foregroundServiceType="microphone"
@@ -82,7 +82,7 @@
         </service>
 
         <service
-            android:name=".WhisperRecognitionService"
+            android:name=".VoximeRecognitionService"
             android:directBootAware="true"
             android:exported="true"
             android:foregroundServiceType="microphone"
