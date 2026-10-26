@@ -36,7 +36,7 @@ Die Android-App **Whisper+** ([woheller69/whisperIMEplus](https://github.com/woh
 1. Repo geklont: `/workspace/whisperIMEplus` (master, Commit `0169c59`)
 2. Rebranding fertig: „VoxIME“ in allen `values*/strings.xml`; `applicationId "org.voxime"`; `local.properties` → `sdk.dir=/workspace/sdk`
 3. Build-Umgebung steht: JDK 17 (`/workspace/jdk`), Android SDK (`/workspace/sdk`: android-34/35, build-tools 34.0.0)
-4. Erste APK gebaut+signiert (`VoxIME.apk`, noch Whisper-Engine — nicht das Endprodukt). Keystore `voxtral.keystore` (Passwort `voxtral123`, Alias `voxtral`) — weiterverwenden für Update-Fähigkeit
+4. Erste APK gebaut+signiert (`VoxIME.apk`, noch Whisper-Engine — nicht das Endprodukt). Keystore `voxtral.keystore` (Passwort **nicht im Repo** — lokal in `gradle.properties` via `-PstorePassword` etc.), Alias `voxtral` — weiterverwenden für Update-Fähigkeit
 5. Lizenzen geklärt: `NOTICE.md` im Repo, README erweitert
 
 **Sandbox-Fallen:**

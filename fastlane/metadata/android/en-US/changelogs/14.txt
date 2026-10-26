@@ -1,1 +1,1 @@
-Deprecation warning
+Critical fix: voice input via keyboard mic button and IME selection no longer crash (manifest component names corrected). Includes variable-length encoder experiment (off by default) and stage timing instrumentation.

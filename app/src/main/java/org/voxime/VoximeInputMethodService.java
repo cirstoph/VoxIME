@@ -342,15 +342,15 @@ public class VoximeInputMethodService extends InputMethodService {
             }
 
             @Override
-            public void onResultReceived(VoximeResult whisperResult) {
+            public void onResultReceived(VoximeResult voxResult) {
                 handler.post(() -> processingBar.setIndeterminate(false));
                 handler.post(() -> {
                     tvStatus.setText("");
                     tvStatus.setVisibility(View.GONE);
                 });
 
-                String result = whisperResult.getResult();
-                if (whisperResult.getLanguage().equals("zh")){
+                String result = voxResult.getResult();
+                if (voxResult.getLanguage().equals("zh")){
                     boolean simpleChinese = sp.getBoolean("simpleChinese",false);
                     result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }
