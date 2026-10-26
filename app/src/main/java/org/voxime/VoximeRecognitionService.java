@@ -154,15 +154,15 @@ public class VoximeRecognitionService extends RecognitionService {
                 }
             }
             @Override
-            public void onResultReceived(VoximeResult whisperResult) {
+            public void onResultReceived(VoximeResult voxResult) {
                 if (finished) return;
                 finished = true;
                 try {
                     callback.endOfSpeech();
                     Bundle results = new Bundle();
                     ArrayList<String> resultList = new ArrayList<>();
-                    String result = whisperResult.getResult();
-                    if (whisperResult.getLanguage().equals("zh")){
+                    String result = voxResult.getResult();
+                    if (voxResult.getLanguage().equals("zh")){
                         boolean simpleChinese = sp.getBoolean("RecognitionServiceSimpleChinese",false);
                         result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                     }

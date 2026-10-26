@@ -211,11 +211,11 @@ public class VoximeRecognizeActivity extends AppCompatActivity {
             public void onUpdateReceived(String message) { }
 
             @Override
-            public void onResultReceived(VoximeResult whisperResult) {
+            public void onResultReceived(VoximeResult voxResult) {
                 runOnUiThread(() -> processingBar.setIndeterminate(false));
 
-                String result = whisperResult.getResult();
-                if (whisperResult.getLanguage().equals("zh")){
+                String result = voxResult.getResult();
+                if (voxResult.getLanguage().equals("zh")){
                     boolean simpleChinese = sp.getBoolean("simpleChinese",false);
                     result = simpleChinese ? ZhConverterUtil.toSimple(result) : ZhConverterUtil.toTraditional(result);
                 }

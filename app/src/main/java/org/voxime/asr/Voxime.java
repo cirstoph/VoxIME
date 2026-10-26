@@ -374,8 +374,8 @@ public class Voxime {
         if (l != null) l.onUpdateReceived(message);
     }
 
-    private void sendResult(VoximeResult whisperResult) {
+    private void sendResult(VoximeResult result) {
         VoximeListener l = mUpdateListener;
-        if (l != null) l.onResultReceived(whisperResult);
+        if (l != null) l.onResultReceived(result);
     }
 }
