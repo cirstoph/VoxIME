@@ -68,7 +68,14 @@ public class SetupActivity extends AppCompatActivity {
             "decoder_model_merged_q4.onnx", "decoder_model_merged_q4.onnx_data", "decoder_model_merged_q4.onnx_data_1"
     };
     private static final String VOXTRAL_BASE = "https://huggingface.co/onnx-community/Voxtral-Mini-3B-2507-ONNX/resolve/main/onnx/";
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 6;
     private boolean voxtralDownloading = false;
+
+    private static class DownloadException extends Exception {
+        final boolean retryable;
+        DownloadException(String msg, boolean retryable) { super(msg); this.retryable = retryable; }
+        DownloadException(String msg, Throwable cause, boolean retryable) { super(msg, cause); this.retryable = retryable; }
+    }
 
     public void downloadVoxtral(View v) {
         if (voxtralDownloading) return;
@@ -85,7 +92,7 @@ public class SetupActivity extends AppCompatActivity {
                 AppLog.i(SetupActivity.this, "Setup", "voxtral download start");
                 for (String name : VOXTRAL_FILES) {
                     AppLog.i(SetupActivity.this, "Setup", "downloading " + name);
-                    downloadOne(name, dir);
+                    downloadWithRetry(name, dir);
                 }
                 AppLog.i(SetupActivity.this, "Setup", "voxtral download complete, files valid: " + ModelFiles.isComplete(dir));
                 runOnUiThread(() -> {
@@ -118,15 +125,38 @@ public class SetupActivity extends AppCompatActivity {
         return getResources().getIdentifier("download_voxtral_failed", "string", getPackageName());
     }
 
-    private void downloadOne(String name, File dir) throws Exception {
+    /**
+     * Downloads one file with retry + exponential backoff. Each attempt resumes
+     * from the .part file via HTTP Range, so transient aborts (e.g.
+     * "Software caused connection abort" on large ONNX files) do not restart
+     * the whole file. Non-retryable errors (4xx, size mismatch) fail fast.
+     */
+    private void downloadWithRetry(String name, File dir) throws Exception {
         File out = new File(dir, name);
-        File part = new File(dir, name + ".part");
-        // skip files that are already complete and valid
         if (out.isFile() && out.length() == ModelFiles.expectedSize(name)) {
             runOnUiThread(() -> extractedFileTV.setText(name + " (ok)"));
             return;
         }
+        Exception last = null;
+        for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+            try {
+                downloadOne(name, dir);
+                return;
+            } catch (DownloadException e) {
+                last = e;
+                if (!e.retryable || attempt == MAX_DOWNLOAD_ATTEMPTS) throw e;
+                long backoffMs = 2000L << (attempt - 1);
+                AppLog.w(SetupActivity.this, "Setup", "download of " + name + " failed (attempt " + attempt + "/" + MAX_DOWNLOAD_ATTEMPTS + "): " + e.getMessage() + " - retrying in " + backoffMs + " ms");
+                try { Thread.sleep(backoffMs); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+            }
+        }
+        throw last;
+    }
+
+    private void downloadOne(String name, File dir) throws Exception {
         long expected = ModelFiles.expectedSize(name);
+        File out = new File(dir, name);
+        File part = new File(dir, name + ".part");
         long downloaded = part.isFile() ? part.length() : 0;
         URL url = new URL(VOXTRAL_BASE + name);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -137,7 +167,13 @@ public class SetupActivity extends AppCompatActivity {
         }
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(30000);
-        int code = conn.getResponseCode();
+        int code;
+        try {
+            code = conn.getResponseCode();
+        } catch (IOException e) {
+            conn.disconnect();
+            throw new DownloadException("connect/read failed for " + name, e, true);
+        }
         if (resume) {
             if (code != 206) {
                 // server ignored the range: restart from scratch
@@ -146,19 +182,26 @@ public class SetupActivity extends AppCompatActivity {
                 conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(30000);
-                code = conn.getResponseCode();
+                try {
+                    code = conn.getResponseCode();
+                } catch (IOException e) {
+                    conn.disconnect();
+                    throw new DownloadException("connect/read failed for " + name, e, true);
+                }
                 downloaded = 0;
             }
         }
         if (code != 200 && code != 206) {
             conn.disconnect();
-            throw new Exception("HTTP " + code + " for " + name);
+            boolean clientError = code >= 400 && code < 500;
+            if (clientError && part.isFile()) part.delete();
+            throw new DownloadException("HTTP " + code + " for " + name, !clientError);
         }
         long total = conn.getContentLengthLong() + downloaded;
         if (total != expected) {
             conn.disconnect();
             if (part.isFile()) part.delete();
-            throw new Exception("Size mismatch for " + name + ": expected " + expected + ", got " + total);
+            throw new DownloadException("Size mismatch for " + name + ": expected " + expected + ", got " + total, false);
         }
         final String shownName = name;
         runOnUiThread(() -> {
@@ -184,11 +227,13 @@ public class SetupActivity extends AppCompatActivity {
                     });
                 }
             }
+        } catch (IOException e) {
+            throw new DownloadException("connection lost mid-download of " + name + " at " + downloaded + "/" + expected + " bytes", e, true);
         } finally {
             conn.disconnect();
         }
         if (downloaded != expected) {
-            throw new Exception("Incomplete download of " + name + ": " + downloaded + "/" + expected);
+            throw new DownloadException("Incomplete download of " + name + ": " + downloaded + "/" + expected, true);
         }
         // atomic-ish activation: only replace after size validated
         if (out.isFile()) out.delete();
