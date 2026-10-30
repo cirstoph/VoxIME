@@ -160,7 +160,7 @@ public class SettingsActivity extends AppCompatActivity {
         });
 
         CheckBox modeVarLen = findViewById(R.id.mode_varlen);
-        modeVarLen.setChecked(sp.getBoolean("encoderVarLen", false));
+        modeVarLen.setChecked(sp.getBoolean("encoderVarLen", true));
         modeVarLen.setOnCheckedChangeListener((compoundButton, isChecked) -> {
             SharedPreferences.Editor editor = sp.edit();
             editor.putBoolean("encoderVarLen", isChecked);

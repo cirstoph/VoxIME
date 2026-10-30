@@ -9,10 +9,13 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.LongBuffer;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -51,11 +54,42 @@ public class VoxtralEngine {
     private OrtSession encoderSession;
     /** True when the loaded encoder graph accepts a variable time axis (experiment). */
     private volatile boolean encoderVarLen = false;
-    /** Preference: use the variable-length encoder when its files exist. */
-    private volatile boolean encoderVarLenPref = false;
-    /** Patched encoder graph (see tools/patch_encoder_varlen.py), data shared with the original. */
+    /** Preference: use the variable-length encoder (bundled graph, default on). */
+    private volatile boolean encoderVarLenPref = true;
+    /** Patched encoder graph shipped as an APK asset (see tools/patch_encoder_varlen.py). */
+    public static final String VAR_ENCODER_ASSET = "audio_encoder_var_q4f16.onnx";
+    /** Size of the asset, used to validate the extracted copy. */
+    public static final long VAR_ENCODER_ASSET_SIZE = 419933L;
+    /** Extracted graph file inside the model dir; its external data points at the original .onnx_data. */
     public static final String VAR_ENCODER_FILE = "audio_encoder_var_q4f16.onnx";
-    public static final String VAR_ENCODER_DATA_FILE = "audio_encoder_var_q4f16.onnx_data";
+
+    /**
+     * Extracts the bundled variable-length encoder graph into the model dir
+     * (ORT needs it as a real file next to the external data). The graph's
+     * external weights reference the original audio_encoder_q4f16.onnx_data,
+     * so no extra 384 MB are needed. Returns false if extraction fails.
+     */
+    private boolean ensureVarEncoderGraph(File dir) {
+        File out = new File(dir, VAR_ENCODER_FILE);
+        if (out.isFile() && out.length() == VAR_ENCODER_ASSET_SIZE) return true;
+        File tmp = new File(dir, VAR_ENCODER_FILE + ".tmp");
+        try (InputStream in = context.getAssets().open(VAR_ENCODER_ASSET);
+             OutputStream os = Files.newOutputStream(tmp.toPath(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) != -1) os.write(buf, 0, n);
+        } catch (Exception e) {
+            AppLog.w(context, TAG, "bundled varlen encoder unavailable: " + e.getMessage());
+            tmp.delete();
+            return false;
+        }
+        if (tmp.length() != VAR_ENCODER_ASSET_SIZE) {
+            tmp.delete();
+            return false;
+        }
+        if (out.isFile()) out.delete();
+        return tmp.renameTo(out);
+    }
 
     public void setEncoderVarLenPref(boolean enabled) {
         this.encoderVarLenPref = enabled;
@@ -119,19 +153,15 @@ public class VoxtralEngine {
         AppLog.i(context, TAG, "using " + threads + " inference threads (" + cores + " cores)");
         OrtSession.SessionOptions enc = new OrtSession.SessionOptions();
         enc.setIntraOpNumThreads(threads);
-        File varEncoder = new File(dir, VAR_ENCODER_FILE);
-        File varEncoderData = new File(dir, VAR_ENCODER_DATA_FILE);
-        boolean useVarLen = encoderVarLenPref
-                && varEncoder.isFile() && varEncoderData.isFile()
-                && varEncoderData.length() == 383696896L;
+        boolean useVarLen = encoderVarLenPref && ModelFiles.isComplete(dir) && ensureVarEncoderGraph(dir);
         AppLog.i(context, TAG, useVarLen
-                ? "variable-length encoder available, using " + VAR_ENCODER_FILE
+                ? "variable-length encoder (bundled graph), using " + VAR_ENCODER_FILE
                 : "using fixed 30 s encoder window (variable-length "
-                    + (encoderVarLenPref ? "files missing" : "disabled by setting") + ")");
+                    + (encoderVarLenPref ? "graph unavailable" : "disabled by setting") + ")");
         loadProgress("Loading encoder (384 MB)...");
         long t = System.currentTimeMillis();
         encoderSession = env.createSession(
-                (useVarLen ? varEncoder : new File(dir, "audio_encoder_q4f16.onnx")).getAbsolutePath(), enc);
+                (useVarLen ? new File(dir, VAR_ENCODER_FILE) : new File(dir, "audio_encoder_q4f16.onnx")).getAbsolutePath(), enc);
         this.encoderVarLen = useVarLen;
         loadProgress("Encoder loaded in " + (System.currentTimeMillis() - t) / 1000 + " s");
         if (timing != null) timing.addNanos(StageTiming.LOAD_ENCODER_SESSION, (System.currentTimeMillis() - t) * 1000000L);

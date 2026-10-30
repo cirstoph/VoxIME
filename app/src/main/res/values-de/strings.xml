@@ -42,7 +42,7 @@
     <string name="lang1">Sprache 1</string>
     <string name="lang2">Sprache 2</string>
     <string name="setting_bluetooth">Bluetoothgeräte verwenden</string>
-    <string name="setting_varlen">Schneller Encoder (experimentell, benötigt audio_encoder_var_q4f16.onnx)</string>
+    <string name="setting_varlen">Schneller Encoder (variable Länge, in der APK enthalten)</string>
     <string name="stop_button">Aufnahme beenden</string>
 
 </resources>
