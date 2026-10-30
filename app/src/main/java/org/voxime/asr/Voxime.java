@@ -150,7 +150,7 @@ public class Voxime {
         startWorkerIfNeeded();
         final boolean varLenPref = mContext.getSharedPreferences(
                 mContext.getPackageName() + "_preferences", android.content.Context.MODE_PRIVATE)
-                .getBoolean("encoderVarLen", false);
+                .getBoolean("encoderVarLen", true);
         mLoaderThread = new Thread(() -> {
             VoxtralEngine engine = new VoxtralEngine(mContext);
             engine.setEncoderVarLenPref(varLenPref);
