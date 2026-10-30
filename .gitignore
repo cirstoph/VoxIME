@@ -4,3 +4,5 @@
 local.properties
 *.keystore
 build/
+__pycache__/
+*.pyc
