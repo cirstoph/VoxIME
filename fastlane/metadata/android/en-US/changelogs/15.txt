@@ -1,1 +1,1 @@
-Make text box editable
+Model download now retries with resume (Range + .part) and exponential backoff instead of aborting on the first connection reset. Variable-length encoder is bundled as an APK asset and enabled by default (Settings switch can turn it off) - no manual file copying, no extra 384 MB. Fast encoder cuts encoder time for 4 s audio from ~24 s (fixed 30 s window) to ~0.6 s on-device reference hardware. Housekeeping: keystore password removed from PLAN.md, SettingsActivity/SetupActivity no longer exported, stale upstream links fixed.

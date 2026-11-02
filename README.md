@@ -52,11 +52,16 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.6, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.6-arm64.apk](apks/VoxIME-0.5.6-arm64.apk) (40,7 MB, Debug-signiert). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
+Aktuelle APK (0.5.7, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.7-arm64.apk](apks/VoxIME-0.5.7-arm64.apk) (Debug-signiert, CI-Build). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
 ## Changelog
+
+### 0.5.7 (2026-10-30)
+- **Modell-Download mit Retry + Resume:** bricht nicht mehr beim ersten `SocketException` („Software caused connection abort“) ab, sondern versucht bis zu 6× mit Backoff (2/4/8/16/32 s) und setzt per HTTP Range an der `.part`-Datei fort. HTTP-4xx/Größenfehler fail-fasten ohne Retry.
+- **Fast-Encoder (variable Länge) jetzt gebündelt und standardmäßig an:** Der gepatchte Graph `audio_encoder_var_q4f16.onnx` liegt als APK-Asset vor und wird beim Engine-Laden automatisch ins Modell-Verzeichnis extrahiert; die Gewichte verweisen auf die vorhandene `audio_encoder_q4f16.onnx_data` (kein Extra-Download, keine 384 MB Kopie, keine manuellen Schritte). In den Einstellungen abschaltbar. Gemessen: 4 s Audio → ~0,6 s Encoder-Zeit statt ~24 s im festen 30-s-Fenster (x86-Referenz; auf dem Gerät entsprechend).
+- Housekeeping: Keystore-Passwort aus `PLAN.md` entfernt, `SettingsActivity`/`SetupActivity` nicht mehr `exported`, Info-/GitHub-Links auf `cirstoph/VoxIME` korrigiert, toter Code und stale Changelogs bereinigt.
 
 ### 0.5.6 (2026-10-25)
 - **Kritischer Crash-Fix:** Manifest-Komponenten auf `.Voxime*` korrigiert (vorher `.Whisper*` — Klassen existieren seit 0.2.0 nicht mehr). Voice-Input über AOSP-Tastatur, IME-Auswahl und RecognitionService crashen nicht mehr mit `ClassNotFoundException`. **Alle APKs bis 0.5.5 sind betroffen — bitte 0.5.6 installieren.**
