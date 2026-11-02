@@ -52,7 +52,7 @@ Der Tokenizer ist byte-level BPE (Tekken); das Vokabular (`tokenizer.json`) lieg
 
 ## Download
 
-Aktuelle APK (0.5.7, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.7-arm64.apk](apks/VoxIME-0.5.7-arm64.apk) (Debug-signiert, CI-Build). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
+Aktuelle APK (0.5.7, arm64-v8a, minSdk 28) im Ordner [apks/](apks/): [apks/VoxIME-0.5.7-arm64.apk](apks/VoxIME-0.5.7-arm64.apk) (42,7 MB, Debug-signiert, CI-Build Run 41541554819, SHA-256 `7082b7f2ef6ac0f0cc1c2c95bb7dfe7e2f5fbfe809860812927f8f2d198289e5`). Zusätzlich baut [Actions → Android CI](https://github.com/cirstoph/VoxIME/actions) bei jedem Push eine frische Debug-APK als Artefakt („VoxIME-debug“).
 
 **Wichtig:** Neue Signatur — falls eine ältere Version installiert ist, vorher deinstallieren. Vor dem ersten Diktieren lädt die App das Voxtral-Modell (~2,7 GB) herunter; die App prüft alle sieben Dateien auf Vollständigkeit, bevor die Engine startet. **Hinweis zur Funktion:** Übersetzung („Translate“) wird von der Voxtral-Engine aktuell nicht unterstützt und ist daher deaktiviert — die App transkribiert ausschließlich.
 
