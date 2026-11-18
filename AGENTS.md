@@ -102,6 +102,10 @@ mit KV-Cache (`inputs_embeds`, `attention_mask`, `position_ids`, `past_*` →
 - Decoder-Schleife: KV-Cache durchgehend als `OnnxTensor` halten (zero-copy),
   `OrtSession.Result` erst nach erfolgreichem nächstem `run()` schließen.
   Logits nur letzte Zeile via `argmaxLastRow` (kein `[1,S,131072]`-Materialisieren).
+- **Nie Secrets in Dateien oder Commit-Messages committen** (2026-11-19: Keystore-Passwort
+  war in `PLAN.md` + Commit-Message geleakt; Entfernung nur per History-Rewrite +
+  Force-Push aller Branches möglich). Keystore-Datei nie committen (`*.keystore` in
+  `.gitignore`).
 
 ## 5. Offene Fragen / Unsicherheiten (unbestätigt, Stand: 0.5.7)
 
@@ -140,3 +144,11 @@ mit KV-Cache (`inputs_embeds`, `attention_mask`, `position_ids`, `past_*` →
   obsolet. Noch relevante Inhalte (Link-Tabelle, Sandbox-Traps) sind nach
   AGENTS.md übernommen; die Datei bleibt in der Git-Historie und auf dem Branch
   `vibe/add-plan-doc` (PR #1) erhalten.
+- **2026-11-19 — Secret-/PII-Cleanup via History-Rewrite.** Keystore-Passwort war in
+  `PLAN.md` (alter Commit `c6e9a74`) und in einer Commit-Message im Klartext;
+  persönliche Autor-E-Mails (u. a. HTWK-Adresse, gmail/t-online-Adressen) standen in
+  den Commit-Metadaten aller Branches. Per `git filter-branch` entfernt (Passwort →
+  `<entfernt>`, E-Mails → `users.noreply.github.com`); Branches `main`,
+  `vibe/finish-voxtral-apk`, `vibe/add-plan-doc` force-gepusht — **alle SHAs haben
+  sich geändert**. Keystore-Datei war nie im Repo; Passwort trotzdem als verbrannt
+  behandeln → Keystore lokal neu erstellen (neue Signatur ⇒ Deinstallation, s. README).
