@@ -1,7 +1,7 @@
 # AGENTS.md — Logbuch für Agenten (VoxIME)
 
 **Anweisung an jede zukünftige Sitzung:** Dieses Dokument weiterführen, nicht
-neu erfinden. Vor dem Arbeiten zuerst lesen: `README.md`, `PLAN.md`,
+neu erfinden. Vor dem Arbeiten zuerst lesen: `README.md`,
 `docs/performance-0.5.4.md`, PR #2 (Kommentare — Session-Verlauf bis 0.5.2),
 diese Datei. Nach jeder Sitzung **einen datierten Eintrag unter „Logbuch"
 anhängen** (neuester zuletzt): was wurde untersucht/geändert (Commit /
@@ -32,6 +32,15 @@ jemand erschlossen hat.
   alte App deinstallieren (versionCode-Downgrade verweigert Android ohnehin).
 - **CI:** `.github/workflows/android.yml` — `testDebugUnitTest` + `assembleDebug`
   bei jedem Push/PR, Artefakt „VoxIME-debug".
+
+- **Wichtige Links:** Original-Modell (Apache-2.0)
+  <https://huggingface.co/mistralai/Voxtral-Mini-3B-2507>; ONNX-Export (primär,
+  Dateien unter `/onnx`)
+  <https://huggingface.co/onnx-community/Voxtral-Mini-3B-2507-ONNX>;
+  Referenz-Inferenz-Logik (JS): transformers.js `VoxtralForConditionalGeneration`
+  + `VoxtralProcessor`; Basis-App (GPLv3)
+  <https://github.com/woheller69/whisperIMEplus>; ORT Android via Maven
+  `com.microsoft.onnxruntime:onnxruntime-android`.
 
 ## 2. Architektur-Schnellreferenz
 
@@ -74,9 +83,11 @@ mit KV-Cache (`inputs_embeds`, `attention_mask`, `position_ids`, `past_*` →
   Geräte-Messungen zählen: `voxime.log` (App-Datenordner, 2-MB-Rotation) /
   logcat, pro Diktat eine StageTiming-JSON-Zeile (Tag `StageTiming`),
   „Log teilen"/„Log kopieren" im Drei-Punkte-Menü.
-- **Sandbox-Fallen (PLAN.md §3):** Downloads mit `python3 -c "urllib.request.urlretrieve(...)"`
+- **Sandbox-Fallen (aus der Portierungs-Session):** Downloads mit `python3 -c "urllib.request.urlretrieve(...)"`
   (curl/wget blockiert); Build mit `./gradlew assembleDebug|assembleRelease`,
-  JDK 17 + SDK unter `/workspace/jdk` bzw. `/workspace/sdk` (falls vorhanden).
+  JDK 17 + SDK unter `/workspace/jdk` bzw. `/workspace/sdk` (falls vorhanden);
+  Signieren mit `/workspace/sdk/build-tools/34.0.0/apksigner`; APK-Artefakte
+  nach `/workspace/artifacts/`.
 
 ## 4. Bekannte Fallen (aus der Session-Historie, PR #2)
 
@@ -124,3 +135,8 @@ mit KV-Cache (`inputs_embeds`, `attention_mask`, `position_ids`, `past_*` →
   2026-11-18 ausgewertet (s. §5): varlen bringt Encoder 26–29 s → 3,2 s,
   aber 66 Output-Tokens statt Transkript → Verdacht varlen-Features,
   A/B via Settings-Toggle empfohlen, (noch) kein Code-Change.
+- **2026-11-19 — PLAN.md entfernt.** War reines Planungs-/Übergabe-Dokument der
+  Portierung (Commit `c6e9a74`, PR #1); als lebendes Dokument seit AGENTS.md
+  obsolet. Noch relevante Inhalte (Link-Tabelle, Sandbox-Traps) sind nach
+  AGENTS.md übernommen; die Datei bleibt in der Git-Historie und auf dem Branch
+  `vibe/add-plan-doc` (PR #1) erhalten.
