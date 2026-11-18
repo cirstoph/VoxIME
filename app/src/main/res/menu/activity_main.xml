@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/menu_copy_log"
+        android:orderInCategory="60"
+        android:title="@string/menu_copy_log" />
+    <item
+        android:id="@+id/menu_share_log"
+        android:orderInCategory="70"
+        android:title="@string/menu_share_log" />
+    <item
+        android:id="@+id/menu_settings"
+        android:orderInCategory="80"
+        android:icon="@drawable/ic_settings"
+        app:showAsAction="always"
+        android:title="Settings" />
+</menu>
